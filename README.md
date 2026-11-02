@@ -132,8 +132,8 @@ GitLab; self-hosted hosts go in `HUB_GITHUB_HOSTS` / `HUB_GITLAB_HOSTS`, comma-s
 **The SessionStart hook** (`hub.py context`) prints, inside a hub only: Now and Blocked from
 `progress.md`; **Red CI**, the repos whose latest run on the base branch failed
 (`gh run list --branch <base> -L 1`, `glab ci list --ref <base>`), or `(none)`; and your open
-PRs/MRs. Forge calls run in parallel with an 8-second timeout each, and the output is capped at
-9,000 characters. `HUB_SKIP_CI=1` skips the CI calls and `HUB_SKIP_PRS=1` the PR/MR calls (set
+PRs/MRs. Forge calls run in parallel, up to 8 seconds each (less in hubs with dozens of repos,
+so that all of them fit in the hook's 20 seconds), and the output is capped at 9,000 characters. `HUB_SKIP_CI=1` skips the CI calls and `HUB_SKIP_PRS=1` the PR/MR calls (set
 both to start sessions without touching the network).
 
 ## An example, end to end

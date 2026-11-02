@@ -91,6 +91,9 @@ TRANSLATIONS_ES = {
 }
 MAX_SECTION_LINES = 60
 MAX_CONTEXT_CHARS = 9000  # SessionStart output over 10,000 chars is moved to a file by Claude Code
+FORGE_WORKERS = 16
+FORGE_TIMEOUT = 8      # seconds per gh/glab call
+FORGE_BUDGET = 16      # seconds for all the forge calls of `context` (the hook times out at 20)
 
 
 # ---------------------------------------------------------------- locating the hub
@@ -305,15 +308,22 @@ def open_prs(repo, timeout=8):
     return []
 
 
+def forge_timeout(n_tasks):
+    """Per-call timeout so that every wave of FORGE_WORKERS calls fits in FORGE_BUDGET."""
+    waves = max(1, -(-n_tasks // FORGE_WORKERS))
+    return max(2, min(FORGE_TIMEOUT, FORGE_BUDGET // waves))
+
+
 def _on_forges(repos, fns):
-    """Run fn(repo) for every fn in fns and every repo on a known forge, all in parallel.
+    """Run fn(repo, timeout=...) for every fn in fns and every repo on a known forge, in parallel.
     Returns (repos, {fn: [result per repo]})."""
     repos = [r for r in repos if r["exists"] and r["forge"] in ("github", "gitlab")]
     tasks = [(fn, r) for fn in fns for r in repos]
     if not tasks:
         return repos, {fn: [] for fn in fns}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, len(tasks))) as ex:
-        futures = [ex.submit(fn, r) for fn, r in tasks]
+    timeout = forge_timeout(len(tasks))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(FORGE_WORKERS, len(tasks))) as ex:
+        futures = [ex.submit(fn, r, timeout=timeout) for fn, r in tasks]
         results = [f.result() for f in futures]
     return repos, {fn: results[i * len(repos):(i + 1) * len(repos)] for i, fn in enumerate(fns)}
 

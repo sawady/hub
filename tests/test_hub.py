@@ -378,6 +378,16 @@ class HubFiles(unittest.TestCase):
             self.assertEqual(hub.ci_state(repo, "gitlab", sha="def")["state"], "manual")
             self.assertEqual(hub.ci_state(repo, "unknown", sha="def")["state"], "unknown")
 
+    def test_forge_timeout_fits_the_hook(self):
+        self.assertEqual(hub.forge_timeout(4), 8)
+        self.assertEqual(hub.forge_timeout(16), 8)
+        self.assertEqual(hub.forge_timeout(17), 8)   # two waves of 8 s
+        self.assertEqual(hub.forge_timeout(40), 5)   # three waves
+        self.assertEqual(hub.forge_timeout(400), 2)  # floor
+        for n in (1, 16, 17, 32, 33, 48, 64):
+            waves = -(-n // hub.FORGE_WORKERS)
+            self.assertLessEqual(waves * hub.forge_timeout(n), hub.FORGE_BUDGET, n)
+
     def test_new_decision(self):
         p1 = hub.new_decision(self.hub, "Work directly on main", today="2026-03-01")
         p2 = hub.new_decision(self.hub, "Licencias: BSD-3 para la librería", today="2026-03-02")
