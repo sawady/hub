@@ -1,0 +1,4 @@
+.claude/settings.local.json
+# DORA metrics output and Radar database dumps (regenerated; may contain PR titles)
+.dora/
+.radar-db/

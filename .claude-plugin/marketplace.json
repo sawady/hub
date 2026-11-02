@@ -1,0 +1,17 @@
+{
+  "name": "hub",
+  "owner": {
+    "name": "Federico Sawady",
+    "url": "https://github.com/sawady"
+  },
+  "metadata": {
+    "description": "The hub plugin: an engineering headquarters for Claude Code."
+  },
+  "plugins": [
+    {
+      "name": "hub",
+      "source": "./plugin",
+      "description": "Contract-first cross-repo features, one agent per repo in parallel worktrees, progress.md as the source of truth. GitHub and GitLab."
+    }
+  ]
+}

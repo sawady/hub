@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Fake glab for tests. State lives in $FAKE_DIR; every call is appended to $FAKE_DIR/calls.
+echo "glab $*" >> "$FAKE_DIR/calls"
+pop() { local f="$FAKE_DIR/$1"; head -n1 "$f"; [ "$(wc -l < "$f")" -gt 1 ] && sed -i '1d' "$f"; return 0; }
+case "$1" in
+  api)
+    path="$2"
+    n="$(sed -E 's#.*/merge_requests/([0-9]+).*#\1#' <<<"$path")"
+    case "$path" in
+      *include_diverged_commits_count*) cat "$FAKE_DIR/mr-$n.json" ;;
+      */rebase) echo '{"rebase_in_progress":true}' ;;
+      *include_rebase_in_progress*) pop "rebase-$n" ;;
+      */merge_requests/[0-9]*)
+        if [ -f "$FAKE_DIR/merged-$n" ]; then echo '{"state":"merged","merge_commit_sha":"0123456789abcdef"}'
+        else printf '{"state":"opened","sha":"s1","head_pipeline":{"status":"%s","sha":"s1"}}\n' "$(pop "pipeline-$n")"; fi ;;
+      *) echo "fake glab: unhandled api $path" >&2; exit 1 ;;
+    esac ;;
+  mr)
+    case "$2" in
+      update) : ;;
+      merge) touch "$FAKE_DIR/merged-$3"; echo "Merged!" ;;
+      list) cat "$FAKE_DIR/mr-list.json" 2>/dev/null || echo "[]" ;;
+      *) echo "fake glab: unhandled mr $*" >&2; exit 1 ;;
+    esac ;;
+  auth) exit 0 ;;
+  *) echo "fake glab: unhandled: $*" >&2; exit 1 ;;
+esac

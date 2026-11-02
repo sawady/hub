@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Fake gh for tests. State lives in $FAKE_DIR; every call is appended to $FAKE_DIR/calls.
+echo "gh $*" >> "$FAKE_DIR/calls"
+pop() {  # print and drop the first line of a sequence file (the last line repeats forever)
+  local f="$FAKE_DIR/$1"; head -n1 "$f"; [ "$(wc -l < "$f")" -gt 1 ] && sed -i '1d' "$f"; return 0
+}
+n="$3"
+case "$1 $2" in
+  "pr view")
+    if [[ "$*" == *"--json state --jq"* ]]; then [ -f "$FAKE_DIR/merged-$n" ] && echo MERGED || echo OPEN
+    elif [[ "$*" == *"mergeCommit"* ]]; then echo "abcdef0123456789"
+    else cat "$FAKE_DIR/view-$n.json"; fi ;;
+  "pr ready") : ;;
+  "pr update-branch") exit "$(cat "$FAKE_DIR/update-exit" 2>/dev/null || echo 0)" ;;
+  "pr checks") pop "checks-$n" ;;
+  "pr merge") touch "$FAKE_DIR/merged-$n"; echo "Merged pull request #$n" ;;
+  "auth status") exit 0 ;;
+  "pr list") cat "$FAKE_DIR/pr-list.json" 2>/dev/null || echo "[]" ;;
+  *) echo "fake gh: unhandled: $*" >&2; exit 1 ;;
+esac

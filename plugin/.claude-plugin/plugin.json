@@ -1,0 +1,13 @@
+{
+  "name": "hub",
+  "version": "0.1.0",
+  "description": "Run an engineering hub with Claude Code: a repo with no product code that plans cross-repo features contract-first, implements them with one agent per repo in parallel worktrees, and keeps progress.md as the source of truth. GitHub and GitLab.",
+  "author": {
+    "name": "Federico Sawady",
+    "url": "https://github.com/sawady"
+  },
+  "homepage": "https://github.com/sawady/hub",
+  "repository": "https://github.com/sawady/hub",
+  "license": "MIT",
+  "keywords": ["orchestration", "multi-repo", "worktrees", "github", "gitlab", "dora", "workflow"]
+}

@@ -1,0 +1,323 @@
+<title>Team Radar</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<!--
+  Radar: a request board for the team, published as a claude.ai artifact with a database.
+  Anyone with Contributor access files requests (each person writes only their own `requests/<id>`
+  document); Editors and the owner triage them into `items/<id>`, order Priority and move states.
+  The hub mirrors it into radar.md with the `radar` skill (scripts/radar-md.py).
+
+  Publish with capabilities:
+    { "db": { "rules": [
+        { "path": "", "read": "view", "write": "admin" },
+        { "path": "requests", "read": "view", "write": "admin" },
+        { "path": "requests/{self}", "read": "view", "write": "interact" } ] },
+      "user": { "scopes": ["profile"] } }
+  Edit the config block below (title, areas) before publishing.
+-->
+<script id="radar-config" type="application/json">
+{
+  "title": "Team Radar",
+  "subtitle": "Requests and technical work, by state. Anyone can file a request; the team triages it.",
+  "areas": ["Product", "Platform", "Data", "Support"]
+}
+</script>
+<style>
+:root {
+  --bg: #f5f6f4; --surface: #ffffff; --surface-2: #eef0ec; --ink: #1a1f1c; --muted: #5b645f; --faint: #8b938e;
+  --line: #dde1dc; --accent: #2457c5; --accent-ink: #ffffff; --accent-soft: #e2e9f8; --danger: #b3362f;
+  --st-inbox: #7b8580; --st-priority: #c0650f; --st-progress: #2457c5; --st-review: #6a4fcf; --st-shipped: #1f8a46;
+  --st-later: #9ba39e; --st-dropped: #b3362f;
+  --shadow: 0 1px 2px rgba(20,30,25,.06), 0 4px 14px rgba(20,30,25,.06);
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --r: 8px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121513; --surface: #191d1b; --surface-2: #202522; --ink: #e6ebe8; --muted: #a2aba6; --faint: #78817c;
+    --line: #2d3430; --accent: #7aa2ff; --accent-ink: #0c1530; --accent-soft: #1d2a4a; --danger: #ef7d76;
+    --st-inbox: #929b96; --st-priority: #e79a4b; --st-progress: #7aa2ff; --st-review: #a493f0; --st-shipped: #4cc47a;
+    --st-later: #6d7671; --st-dropped: #ef7d76; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 14px rgba(0,0,0,.25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121513; --surface: #191d1b; --surface-2: #202522; --ink: #e6ebe8; --muted: #a2aba6; --faint: #78817c;
+  --line: #2d3430; --accent: #7aa2ff; --accent-ink: #0c1530; --accent-soft: #1d2a4a; --danger: #ef7d76;
+  --st-inbox: #929b96; --st-priority: #e79a4b; --st-progress: #7aa2ff; --st-review: #a493f0; --st-shipped: #4cc47a;
+  --st-later: #6d7671; --st-dropped: #ef7d76; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 14px rgba(0,0,0,.25);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--f-body); }
+.wrap { max-width: 1400px; margin: 0 auto; padding: 20px max(16px, env(safe-area-inset-right, 0px)) 48px max(16px, env(safe-area-inset-left, 0px)); display: flex; flex-direction: column; gap: 16px; }
+h1 { font-size: 22px; margin: 0; font-weight: 600; letter-spacing: -.01em; }
+.sub { color: var(--muted); margin: 2px 0 0; }
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; justify-content: space-between; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tab { border: 0; background: none; padding: 8px 12px; color: var(--muted); border-bottom: 2px solid transparent; cursor: pointer; font: inherit; white-space: nowrap; }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+button, input, select, textarea { font: inherit; color: inherit; }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: var(--r); padding: 6px 12px; cursor: pointer; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.small { padding: 2px 8px; font-size: 12px; }
+.btn:disabled { opacity: .5; cursor: default; }
+.field { width: 100%; border: 1px solid var(--line); background: var(--surface); border-radius: var(--r); padding: 7px 10px; }
+.notice { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r); padding: 8px 12px; color: var(--muted); }
+.board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(250px, 1fr); gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+.col { background: var(--surface-2); border-radius: var(--r); padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 120px; }
+.col h2 { font-size: 13px; margin: 0 0 2px; display: flex; gap: 6px; align-items: center; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 9px 10px; box-shadow: var(--shadow); cursor: pointer; text-align: left; width: 100%; }
+.card:focus-visible, .tab:focus-visible, .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.card .t { font-weight: 600; }
+.meta { color: var(--muted); font-size: 12px; display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 4px; }
+.tag { font-size: 11px; padding: 1px 6px; border-radius: 999px; background: var(--surface-2); color: var(--muted); }
+.tag.wait { background: var(--accent-soft); color: var(--accent); }
+.empty { color: var(--faint); font-size: 12px; padding: 4px 2px; }
+table { border-collapse: collapse; width: 100%; background: var(--surface); border-radius: var(--r); overflow: hidden; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; color: var(--muted); font-weight: 500; background: var(--surface-2); }
+td.num { font-family: var(--f-mono); }
+.scroll-x { overflow-x: auto; }
+dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); width: min(640px, calc(100vw - 32px)); padding: 0; box-shadow: var(--shadow); }
+dialog::backdrop { background: rgba(0,0,0,.35); }
+.sheet { padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.grow { flex: 1 1 200px; }
+label.l { font-size: 12px; color: var(--muted); display: block; margin-bottom: 2px; }
+.hist { font-size: 12px; color: var(--muted); margin: 0; padding-left: 18px; }
+.toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: var(--r); }
+</style>
+
+<div class="wrap">
+  <header>
+    <div><h1 id="title">Radar</h1><p class="sub" id="subtitle"></p></div>
+    <div class="row"><button class="btn primary" id="new-btn" type="button" hidden>New request</button></div>
+  </header>
+  <div id="status" class="notice">Loading…</div>
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" data-tab="board" aria-selected="true">Board</button>
+    <button class="tab" role="tab" data-tab="shipped" aria-selected="false">Shipped</button>
+    <button class="tab" role="tab" data-tab="metrics" aria-selected="false">Metrics</button>
+  </nav>
+  <main id="view"></main>
+</div>
+
+<dialog id="sheet"><div class="sheet" id="sheet-body"></div></dialog>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(() => {
+  "use strict";
+  const CFG = JSON.parse(document.getElementById("radar-config").textContent);
+  const STATES = [
+    ["Priority", "--st-priority"], ["In progress", "--st-progress"], ["In review", "--st-review"],
+    ["Inbox", "--st-inbox"], ["Later", "--st-later"], ["Shipped", "--st-shipped"], ["Dropped", "--st-dropped"],
+  ];
+  const BOARD = ["Priority", "In progress", "In review", "Inbox", "Later"];
+  const color = Object.fromEntries(STATES);
+  const S = { tab: "board", items: new Map(), requests: new Map(), dora: new Map(), names: {},
+    db: null, user: null, uid: null, canEdit: false, canWrite: null, ready: false, readOnly: false };
+  const $ = (s) => document.querySelector(s);
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const nowIso = () => new Date().toISOString();
+  const ymd = (t) => (t ? new Date(t).toISOString().slice(0, 10) : "");
+  const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => (t.hidden = true), 2600); }
+
+  $("#title").textContent = CFG.title || "Radar";
+  $("#subtitle").textContent = CFG.subtitle || "";
+  try { const t = localStorage.getItem("radar-tab"); if (t) S.tab = t; } catch (e) { /* storage unavailable */ }
+
+  // ------------------------------------------------------------ data
+  function allItems() {
+    const out = [...S.items.values()];
+    for (const [uid, doc] of S.requests) {
+      for (const [id, r] of Object.entries((doc && doc.items) || {})) {
+        if (!S.items.has(id)) out.push({ ...r, id, state: "Inbox", kind: r.kind || "Request", pending: true, owner: uid });
+      }
+    }
+    return out;
+  }
+  const byOrder = (a, b) => (a.order ?? 1e9) - (b.order ?? 1e9) || String(a.createdAt).localeCompare(String(b.createdAt));
+
+  async function resolveNames(ids) {
+    const missing = ids.filter((id) => id && !(id in S.names));
+    if (!missing.length || !S.user || !S.user.profiles) return;
+    try { const ps = await S.user.profiles(missing); for (const id of missing) S.names[id] = (ps[id] && ps[id].name) || ""; render(); } catch (e) { /* names are optional */ }
+  }
+
+  // ------------------------------------------------------------ render
+  function card(i) {
+    const tags = [];
+    if (i.area) tags.push(`<span class="tag">${esc(i.area)}</span>`);
+    if (i.kind === "Tech task") tags.push(`<span class="tag">tech task</span>`);
+    if (i.pending) tags.push(`<span class="tag">new, untriaged</span>`);
+    for (const w of i.waitingOn || []) tags.push(`<span class="tag wait">waiting on ${esc(w)}</span>`);
+    const who = i.requestedBy ? `<span>asked by ${esc(i.requestedBy)}</span>` : "";
+    return `<button class="card" type="button" data-open="${esc(i.id)}"><div class="t">${esc(i.title)}</div><div class="meta">${tags.join("")}${who}</div></button>`;
+  }
+
+  function renderBoard(items) {
+    return `<div class="board">${BOARD.map((st) => {
+      const list = items.filter((i) => i.state === st).sort(byOrder);
+      return `<section class="col" aria-label="${esc(st)}"><h2><span class="dot" style="background:var(${color[st]})"></span>${esc(st)} <span>${list.length}</span></h2>${list.map(card).join("") || '<div class="empty">Nothing here.</div>'}</section>`;
+    }).join("")}</div>`;
+  }
+
+  function renderShipped(items) {
+    const done = items.filter((i) => i.state === "Shipped").sort((a, b) => String(b.shippedAt).localeCompare(String(a.shippedAt)));
+    if (!done.length) return `<p class="empty">Nothing shipped yet.</p>`;
+    return `<div class="scroll-x"><table><thead><tr><th>Date</th><th>Item</th><th>Area</th><th>Asked by</th></tr></thead><tbody>${done.map((i) =>
+      `<tr><td class="num">${esc(ymd(i.shippedAt)) || "—"}</td><td><a href="#" data-open="${esc(i.id)}">${esc(i.title)}</a></td><td>${esc(i.area)}</td><td>${esc(i.requestedBy)}</td></tr>`).join("")}</tbody></table></div>`;
+  }
+
+  function hours(h) { return h == null ? "—" : h < 48 ? `${h.toFixed(1)} h` : `${(h / 24).toFixed(1)} d`; }
+  function renderMetrics() {
+    const idx = S.dora.get("index");
+    if (!idx) return `<p class="notice">No metrics yet. In the hub, run <code>/hub:dora</code> and then the <code>radar</code> skill to upload them.</p>`;
+    const rows = (idx.repos || []).map((r) => {
+      if (r.error) return `<tr><td>${esc(r.alias)}</td><td colspan="5">error: ${esc(r.error)}</td></tr>`;
+      const m = r.metrics, cfr = m.changeFailureRate == null ? "—" : `${Math.round(m.changeFailureRate * 100)}% (${m.failures})`;
+      return `<tr><td>${esc(r.alias)}</td><td class="num">${m.deploys}</td><td class="num">${m.deploysPerWeek}</td><td class="num">${hours(m.leadTimeHours.median)} / ${hours(m.leadTimeHours.p90)}</td><td class="num">${cfr}</td><td class="num">${hours(m.timeToRestoreHours.median)}</td></tr>`;
+    }).join("");
+    return `<p class="sub">Last ${esc(idx.windowDays)} days, up to ${esc(ymd(idx.windowEnd))}. Per repo, for the team; never per person.</p>
+      <div class="scroll-x"><table><thead><tr><th>Repo</th><th>Deploys</th><th>Per week</th><th>Lead time (median / p90)</th><th>Change failure rate</th><th>Time to restore</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  function render() {
+    for (const t of document.querySelectorAll(".tab")) t.setAttribute("aria-selected", String(t.dataset.tab === S.tab));
+    const items = allItems();
+    const st = $("#status");
+    if (!S.ready) { st.hidden = false; }
+    else if (!S.db) { st.hidden = false; st.textContent = "The Radar's database is not available in this view. Open it on claude.ai while signed in."; }
+    else if (S.readOnly) { st.hidden = false; st.textContent = "You can read the Radar. Ask its owner for Contributor access to file requests."; }
+    else st.hidden = true;
+    $("#new-btn").hidden = !(S.db && !S.readOnly);
+    $("#view").innerHTML = S.tab === "shipped" ? renderShipped(items) : S.tab === "metrics" ? renderMetrics() : renderBoard(items);
+    resolveNames([...new Set(items.map((i) => i.createdBy).filter(Boolean))]);
+  }
+
+  // ------------------------------------------------------------ sheets
+  function openSheet(html) { $("#sheet-body").innerHTML = html; const d = $("#sheet"); if (!d.open) d.showModal(); }
+  function closeSheet() { $("#sheet").close(); }
+
+  function newForm() {
+    const areas = (CFG.areas || []).map((a) => `<option>${esc(a)}</option>`).join("");
+    openSheet(`<h2 style="margin:0;font-size:18px">New request</h2>
+      <form id="new-form" class="sheet" style="padding:0">
+        <div><label class="l" for="f-title">What do you need?</label><input class="field" id="f-title" required maxlength="160"></div>
+        <div><label class="l" for="f-desc">Context: why, for whom, by when</label><textarea class="field" id="f-desc" rows="5" maxlength="4000"></textarea></div>
+        <div class="row"><div class="grow"><label class="l" for="f-area">Area</label><select class="field" id="f-area">${areas}</select></div>
+          <div class="grow"><label class="l" for="f-by">Asked by (team or role)</label><input class="field" id="f-by" maxlength="80"></div></div>
+        ${S.canEdit ? `<label class="row"><input type="checkbox" id="f-tech"> Technical task (not a request)</label>` : ""}
+        <p class="sub" style="margin:0">No credentials, exploitable security detail or sensitive information about people: everyone with access reads the Radar.</p>
+        <div class="row"><button class="btn primary" type="submit">File it</button><button class="btn" type="button" data-close>Cancel</button></div>
+      </form>`);
+    $("#f-title").focus();
+  }
+
+  async function submitNew() {
+    const data = { title: $("#f-title").value.trim(), description: $("#f-desc").value.trim(), area: $("#f-area").value,
+      requestedBy: $("#f-by").value.trim(), kind: $("#f-tech") && $("#f-tech").checked ? "Tech task" : "Request",
+      createdAt: nowIso(), createdBy: S.uid, waitingOn: [], links: [] };
+    if (!data.title) return;
+    const id = newId();
+    try {
+      if (S.canEdit) {
+        await S.db.doc(`items/${id}`).set({ ...data, id, state: "Inbox", order: null, shippedAt: null, history: [{ state: "Inbox", at: data.createdAt, by: S.uid }] });
+      } else {
+        const ref = S.db.doc(`requests/${S.uid}`);
+        // update() merges nested objects recursively, so only this request is added
+        if (S.requests.has(S.uid)) await ref.update({ items: { [id]: data } });
+        else await ref.set({ items: { [id]: data } });
+      }
+      closeSheet(); toast("Filed. It shows up in Inbox.");
+    } catch (e) { if (e && e.code === "invalid_argument") { S.readOnly = true; render(); } toast("Could not save: " + ((e && e.message) || "error")); }
+  }
+
+  function itemSheet(id) {
+    const i = allItems().find((x) => x.id === id); if (!i) return;
+    const by = i.createdBy ? (S.names[i.createdBy] || "Someone") : "";
+    const links = (i.links || []).filter((l) => /^https?:\/\//.test(l.url || "")).map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label || l.url)}</a>`).join(" · ");
+    const hist = (i.history || []).map((h) => `<li>${esc(ymd(h.at))}: ${esc(h.state)}</li>`).join("");
+    const edit = S.canEdit ? `<div class="row">
+        <div class="grow"><label class="l" for="s-state">State</label><select class="field" id="s-state">${STATES.map(([s]) => `<option ${s === i.state ? "selected" : ""}>${esc(s)}</option>`).join("")}</select></div>
+        <div class="grow"><label class="l" for="s-wait">Waiting on (comma separated)</label><input class="field" id="s-wait" value="${esc((i.waitingOn || []).join(", "))}"></div></div>
+      <div class="row"><button class="btn primary" type="button" data-save="${esc(i.id)}">Save</button>
+        ${i.state === "Priority" && !i.pending ? `<button class="btn" type="button" data-move="up" data-id="${esc(i.id)}">Move up</button><button class="btn" type="button" data-move="down" data-id="${esc(i.id)}">Move down</button>` : ""}
+        <button class="btn" type="button" data-close>Close</button></div>` : `<div class="row"><button class="btn" type="button" data-close>Close</button></div>`;
+    openSheet(`<div class="meta"><span class="dot" style="background:var(${color[i.state] || "--st-inbox"})"></span>${esc(i.state)}${i.area ? " · " + esc(i.area) : ""}${i.kind === "Tech task" ? " · tech task" : ""}</div>
+      <h2 style="margin:0;font-size:18px">${esc(i.title)}</h2>
+      ${i.description ? `<p style="margin:0;white-space:pre-wrap">${esc(i.description)}</p>` : ""}
+      <div class="meta">${i.requestedBy ? `<span>asked by ${esc(i.requestedBy)}</span>` : ""}${by ? `<span>filed by ${esc(by)}</span>` : ""}${i.createdAt ? `<span>on ${esc(ymd(i.createdAt))}</span>` : ""}${i.shippedAt ? `<span>shipped ${esc(ymd(i.shippedAt))}</span>` : ""}</div>
+      ${links ? `<div>${links}</div>` : ""}${hist ? `<ul class="hist">${hist}</ul>` : ""}${edit}`);
+  }
+
+  async function saveItem(id) {
+    const i = allItems().find((x) => x.id === id); if (!i) return;
+    const state = $("#s-state").value, waitingOn = $("#s-wait").value.split(",").map((s) => s.trim()).filter(Boolean);
+    const at = nowIso(), history = [...(i.history || [])];
+    if (state !== i.state) history.push({ state, at, by: S.uid });
+    const patch = { state, waitingOn, history, shippedAt: state === "Shipped" ? (i.shippedAt || at) : null };
+    if (state === "Priority" && i.state !== "Priority") patch.order = Math.max(0, ...allItems().filter((x) => x.state === "Priority").map((x) => x.order || 0)) + 1;
+    try {
+      if (i.pending) {  // triage: move the request from its author's document into items
+        const { pending, owner, ...rest } = i;
+        await S.db.doc(`items/${id}`).set({ ...rest, ...patch, id, order: patch.order ?? null, history: [{ state: "Inbox", at: i.createdAt || at, by: i.createdBy || null }, ...history] });
+        const doc = S.requests.get(owner) || {}; const items = { ...(doc.items || {}) }; delete items[id];
+        await S.db.doc(`requests/${owner}`).set({ ...doc, items });
+      } else await S.db.doc(`items/${id}`).update(patch);
+      closeSheet(); toast("Saved.");
+    } catch (e) { toast("Could not save: " + ((e && e.message) || "error")); }
+  }
+
+  async function move(id, dir) {
+    const list = allItems().filter((x) => x.state === "Priority" && !x.pending).sort(byOrder);
+    const k = list.findIndex((x) => x.id === id), j = dir === "up" ? k - 1 : k + 1;
+    if (k < 0 || j < 0 || j >= list.length) return;
+    [list[k], list[j]] = [list[j], list[k]];
+    try { for (let n = 0; n < list.length; n++) if (list[n].order !== n + 1) await S.db.doc(`items/${list[n].id}`).update({ order: n + 1 }); closeSheet(); }
+    catch (e) { toast("Could not reorder: " + ((e && e.message) || "error")); }
+  }
+
+  // ------------------------------------------------------------ events
+  document.addEventListener("click", (e) => {
+    const t = e.target.closest("[data-tab],[data-open],[data-close],[data-save],[data-move],#new-btn");
+    if (!t) return;
+    if (t.dataset.tab) { S.tab = t.dataset.tab; try { localStorage.setItem("radar-tab", S.tab); } catch (err) { /* ignore */ } render(); }
+    else if (t.dataset.open) { e.preventDefault(); itemSheet(t.dataset.open); }
+    else if ("close" in t.dataset) closeSheet();
+    else if (t.dataset.save) saveItem(t.dataset.save);
+    else if (t.dataset.move) move(t.dataset.id, t.dataset.move);
+    else if (t.id === "new-btn") newForm();
+  });
+  document.addEventListener("submit", (e) => { if (e.target.id === "new-form") { e.preventDefault(); submitNew(); } });
+
+  // ------------------------------------------------------------ start
+  render();
+  (async () => {
+    const use = window.claude && window.claude.use ? (n) => window.claude.use(n) : async () => null;
+    const [db, user] = await Promise.all([use("db"), use("user")]);
+    S.user = user;
+    if (user) {
+      try { S.uid = await user.id(); S.canEdit = await user.canEdit(); S.canWrite = await user.can("data.write"); } catch (e) { /* reads never reject */ }
+    }
+    S.ready = true;
+    if (!db) { render(); return; }
+    S.db = db;
+    S.readOnly = !S.uid || S.canWrite === false;
+    const timer = setTimeout(() => { if (!S.loaded) { $("#status").hidden = false; $("#status").textContent = "Still loading the Radar…"; } }, 10000);
+    const onErr = (what) => (e) => { console.error(what, e); clearTimeout(timer); $("#status").hidden = false; $("#status").textContent = `Could not load ${what}: ${(e && e.message) || "error"}`; };
+    const toMap = (snap) => new Map(snap.docs.map((d) => [d.id, d.data()]));
+    db.collection("items").onSnapshot((snap) => { S.loaded = true; clearTimeout(timer); S.items = new Map(snap.docs.map((d) => [d.id, { ...d.data(), id: d.id }])); render(); }, onErr("items"));
+    db.collection("requests").onSnapshot((snap) => { S.requests = toMap(snap); render(); }, onErr("requests"));
+    db.collection("dora").onSnapshot((snap) => { S.dora = toMap(snap); render(); }, onErr("metrics"));
+    render();
+  })();
+})();
+</script>

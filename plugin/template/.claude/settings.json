@@ -1,0 +1,59 @@
+{
+  "extraKnownMarketplaces": {
+    "hub": {
+      "source": {
+        "source": "github",
+        "repo": "sawady/hub"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "hub@hub": true
+  },
+  "permissions": {
+    "additionalDirectories": [],
+    "allow": [
+      "Bash(git -C * status*)",
+      "Bash(git -C * log *)",
+      "Bash(git -C * diff*)",
+      "Bash(git -C * show *)",
+      "Bash(git -C * branch*)",
+      "Bash(git -C * rev-list *)",
+      "Bash(git -C * rev-parse *)",
+      "Bash(git -C * fetch*)",
+      "Bash(git -C * worktree list*)",
+      "Bash(git -C * remote get-url *)",
+      "Bash(gh pr list*)",
+      "Bash(gh pr view*)",
+      "Bash(gh pr checks*)",
+      "Bash(gh pr diff*)",
+      "Bash(gh run list*)",
+      "Bash(gh run view*)",
+      "Bash(glab mr list*)",
+      "Bash(glab mr view*)",
+      "Bash(glab mr diff*)",
+      "Bash(glab ci status*)",
+      "Bash(glab ci list*)",
+      "Bash(glab ci view*)"
+    ],
+    "ask": [
+      "Bash(gh pr merge*)",
+      "Bash(glab mr merge*)",
+      "Bash(gh pr ready*)",
+      "Bash(glab mr update * --ready*)"
+    ],
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push * --force*)",
+      "Bash(git push * -f*)",
+      "Bash(git -C * push --force*)",
+      "Bash(git -C * push -f*)",
+      "Bash(git -C * push * --force*)",
+      "Bash(git -C * push * -f*)",
+      "Bash(gh repo delete*)",
+      "Bash(gh repo edit * --visibility*)",
+      "Bash(glab repo delete*)"
+    ]
+  }
+}
