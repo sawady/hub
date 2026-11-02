@@ -1,5 +1,7 @@
 # hub
 
+[![ci](https://github.com/sawady/hub/actions/workflows/ci.yml/badge.svg)](https://github.com/sawady/hub/actions/workflows/ci.yml)
+
 An engineering hub for Claude Code: one repo with **no product code** from which you plan
 features that span several repos, implement them with one agent per repo in parallel, and keep a
 record of everything. It works with GitHub (`gh`) and GitLab (`glab`), even mixed in one hub.
@@ -177,6 +179,11 @@ claude plugin validate plugin && claude plugin validate .
 never be published. The term list is never in the repo: it comes from `~/.config/hub/leak-terms.txt`
 locally or from the `HUB_LEAK_TERMS` secret in CI, and the report shows only `path:line: term #N`.
 CI also runs gitleaks.
+
+## Contributing
+
+Issues are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Changes are listed in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
