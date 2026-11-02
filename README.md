@@ -1,6 +1,7 @@
 # hub
 
 [![ci](https://github.com/sawady/hub/actions/workflows/ci.yml/badge.svg)](https://github.com/sawady/hub/actions/workflows/ci.yml)
+[![Sponsor](https://img.shields.io/github/sponsors/sawady?label=Sponsor&logo=GitHub)](https://github.com/sponsors/sawady)
 
 An engineering hub for Claude Code: one repo with **no product code** from which you plan
 features that span several repos, implement them with one agent per repo in parallel, and keep a
@@ -219,6 +220,11 @@ CI also runs gitleaks.
 
 Issues are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Changes are listed in
 [CHANGELOG.md](CHANGELOG.md).
+
+## Sponsoring
+
+hub is free and MIT licensed. If it saves you time, you can support its development through
+[GitHub Sponsors](https://github.com/sponsors/sawady).
 
 ## License
 
