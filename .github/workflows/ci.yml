@@ -12,7 +12,7 @@ jobs:
   leaks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: Term scan (list comes from a repository secret, never from the repo)
@@ -20,7 +20,7 @@ jobs:
           HUB_LEAK_TERMS: ${{ secrets.HUB_LEAK_TERMS }}
         run: |
           if [ -z "$HUB_LEAK_TERMS" ]; then
-            echo "::warning::HUB_LEAK_TERMS secret not available (fork PR?); term scan skipped"
+            echo "::warning::HUB_LEAK_TERMS secret not set (or a fork PR); term scan skipped"
             exit 0
           fi
           scripts/check-leaks.sh --history
@@ -33,8 +33,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.10"
       - name: Tools
