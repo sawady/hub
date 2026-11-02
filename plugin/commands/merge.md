@@ -6,8 +6,13 @@ Merge in order, in repo `$1`: $ARGUMENTS
 
 1. This merges to a base branch: only proceed if I explicitly asked to merge these numbers in this
    message or the previous one. Otherwise list what would be merged and ask.
-2. Resolve the repo path and forge with `python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/hub.py" repos`.
+2. Resolve the repo path, forge and flow with `python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/hub.py" repos`.
    Check the order against the feature's merge order (`features/*.md`): producers first.
+   If `$1` has Flow `direct`, it has no PRs/MRs: do not run merge-seq. Check whether the
+   feature's branch already landed (`git -C <path> fetch -q origin && git -C <path> merge-base --is-ancestor <branch> origin/<base>`).
+   If it did, record it and go on with the next repo in the merge order; if a worktree branch is
+   still waiting, offer to land it with `land-direct.sh` as in `/hub:e2e` step 6 (explicit OK,
+   base CI green) instead of merging.
 3. Run `"${CLAUDE_PLUGIN_ROOT}/scripts/merge-seq.sh" -C <path> [--method <m>] <numbers...>`
    in the background (it can take a while: it waits for every pipeline). For each PR/MR it marks
    it ready, rebases it on the server if it is behind, waits for the pipeline and merges. It stops

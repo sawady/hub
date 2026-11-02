@@ -1,5 +1,5 @@
 {
-  "description": "Inject Now/Blocked from progress.md and your open PRs/MRs at the start of every session in a hub. Silent outside a hub.",
+  "description": "Inject Now/Blocked from progress.md, the repos whose base branch CI is red, and your open PRs/MRs at the start of every session in a hub. Silent outside a hub.",
   "hooks": {
     "SessionStart": [
       {

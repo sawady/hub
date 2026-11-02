@@ -13,7 +13,8 @@ Close the day. Extra notes from me: $ARGUMENTS
    the why), what is left for tomorrow. Short; link PRs/MRs and feature files.
 3. Update `progress.md`: Now (and its "Resume here" block, written so a fresh session can act on
    it without asking), Blocked, Paused, and Done for this week. Update the decision log of every
-   feature touched today.
+   feature touched today. If a decision taken today outlives its feature, offer to record it with
+   `/hub:decision`.
 4. If the hub uses the Radar, run the `radar` skill to propose state changes and refresh `radar.md`
    (and the DORA metrics, if configured). Apply Radar changes only with my OK.
 5. Show the diff summary and commit in the hub: `git add -A && git commit -m "close YYYY-MM-DD"`,

@@ -9,10 +9,17 @@ record of everything. It works with GitHub (`gh`) and GitLab (`glab`), even mixe
 hub is two things:
 
 - **A template** for the hub repo: `CLAUDE.md`, `progress.md`, `repos.md`, `features/`,
-  `journal/`, `research/` and sensible permissions.
+  `decisions/`, `journal/`, `research/` and sensible permissions.
 - **A Claude Code plugin** with the commands that run the method (`/hub:feature`, `/hub:e2e`,
-  `/hub:status`, `/hub:close`, `/hub:merge`, `/hub:dora`), a SessionStart hook that puts
-  "where we are" in front of every session, and a generic per-repo agent.
+  `/hub:status`, `/hub:close`, `/hub:merge`, `/hub:decision`, `/hub:dora`), a SessionStart hook
+  that puts "where we are" in front of every session, and a generic per-repo agent.
+
+**Not only for multi-repo products.** A feature that touches a single repo is fine: the
+contract is then the public interface that changes (an API, a CLI, a file format), and the rest
+of the method (worktree, checks, progress, decisions) is the same. A hub can also drive a
+**portfolio of independent projects**, each repo with its own agent and rules, where what the
+hub adds is one place for the state of everything, the red CI runs and the decisions. Repos
+where you work straight on the base branch, without PRs, fit too (Flow `direct`, below).
 
 ## The method
 
@@ -24,8 +31,8 @@ in the hub and reach into the repos from there.
 
 **`progress.md` is the source of truth.** Now, Next, Blocked, Paused, Done, and a **Resume here**
 block written so that a fresh session (or a colleague, or you after a week off) can act on it
-without asking anything. The SessionStart hook injects Now and Blocked, plus your open PRs/MRs
-across all repos, at the start of every session. `/hub:status` refreshes it from the forges;
+without asking anything. The SessionStart hook injects Now and Blocked, the repos whose base
+branch has a red CI run, and your open PRs/MRs across all repos, at the start of every session. `/hub:status` refreshes it from the forges;
 `/hub:close` closes the day.
 
 **Contract first.** A feature that spans repos gets a file, `features/<name>.md`, and the first
@@ -39,6 +46,16 @@ they run in parallel. Each gets the contract verbatim and only its part. Produce
 consumers: the API that publishes an OpenAPI spec finishes before the app that generates a client
 from it. When they come back, the orchestrating session checks the diffs **against the
 contract** (names, types, enums, errors) before anything is pushed.
+
+**Two flows.** Each repo in `repos.md` has a Flow. `pr` (the default): branches, draft
+PRs/MRs, `/hub:merge`. `direct`, for repos where you work on the base branch without PRs: the
+work still happens on a branch in a worktree and goes through the same checks, and `/hub:e2e`
+lands it by fast-forwarding the base branch and pushing, only after an explicit OK and only with
+the base branch's CI green; then it watches the CI of the pushed commit.
+
+**Decisions are never rewritten.** Choices that outlive a feature (a convention, a tool, a rule
+for a repo) go in `decisions/NNNN-<title>.md`. When one changes, a new decision supersedes it;
+the old file only gets "Superseded by NNNN" in its Status.
 
 **Absolute dates, always.** "Yesterday" is wrong the moment you read it tomorrow. Every entry in
 the hub carries `YYYY-MM-DD`.
@@ -80,12 +97,13 @@ and/or `glab` authenticated for the repos that use them.
 | Command | What it does |
 |---|---|
 | `/hub:init [dir]` | Create a hub from the template and add its repos |
-| `/hub:add-repo <alias> <path>` | Add a repo: row in `repos.md`, agent in `.claude/agents/<alias>.md`, path allowed in settings |
+| `/hub:add-repo <alias> <path>` | Add a repo: row in `repos.md` (base, flow, forge, checks), agent in `.claude/agents/<alias>.md`, path allowed in settings |
 | `/hub:feature <name>` | Create `features/<name>.md`, draft the contract, branch name, merge order and e2e plan |
-| `/hub:e2e <name> [scope]` | One agent per repo in its own worktree, in parallel (producer first), then a consistency check against the contract; asks before pushing |
-| `/hub:status` | Standup: branches, worktrees, PRs/MRs and pipelines of every repo; refreshes Now in `progress.md` |
+| `/hub:e2e <name> [scope]` | One agent per repo in its own worktree, in parallel (producer first), then a consistency check against the contract; asks before pushing. Flow `pr`: draft PRs/MRs. Flow `direct`: fast-forward the base and push, CI green |
+| `/hub:status` | Standup: branches, worktrees, base-branch CI, PRs/MRs and pipelines of every repo; refreshes Now in `progress.md` |
 | `/hub:close` | Close the day: `journal/<date>.md`, `progress.md`, feature decision logs, commit |
-| `/hub:merge <alias> <n>...` | Merge PRs/MRs in order: mark ready, rebase when behind, wait for the pipeline, merge; stops at the first problem |
+| `/hub:merge <alias> <n>...` | Merge PRs/MRs in order: mark ready, rebase when behind, wait for the pipeline, merge; stops at the first problem. Repos with Flow `direct` have nothing to merge: it checks they landed, or offers to land them |
+| `/hub:decision <title>` | Record a decision in `decisions/NNNN-<slug>.md`; `--supersedes N` marks the old one as superseded |
 | `/hub:dora [alias...]` | DORA metrics per repo (deploy frequency, lead time, change failure rate, time to restore) |
 
 The plugin also ships a `repo-worker` agent (used by `/hub:e2e` when a repo has no agent of its
@@ -96,18 +114,27 @@ own) and a `radar` skill (below).
 ```
 CLAUDE.md                 how this hub works; placeholders filled by init
 progress.md               Now / Next / Blocked / Paused / Done + "Resume here"
-repos.md                  alias, path, base branch, forge, about, checks, deploys
+repos.md                  alias, path, base branch, flow, forge, about, checks, deploys
 features/_template.md     contract, repos and PRs/MRs, merge order, e2e plan, decision log
-features/<name>.md        one per cross-repo feature
+features/<name>.md        one per feature
+decisions/NNNN-<title>.md decisions that outlive a feature; never rewritten, only superseded
 journal/YYYY-MM-DD.md     daily notes from /hub:close
 research/                 spikes, comparisons, postmortem drafts
 .claude/agents/<alias>.md one agent per repo, with the rules that are easy to break there
 .claude/settings.json     plugin enabled, read-only commands allowed, merges ask, force push denied
 ```
 
-`repos.md` is a markdown table. The `Forge` column is optional: when empty, hub reads the
-`origin` remote (`github.com` → GitHub, `gitlab.*` → GitLab; self-hosted hosts go in
-`HUB_GITHUB_HOSTS` / `HUB_GITLAB_HOSTS`, comma-separated).
+`repos.md` is a markdown table. The `Flow` column is optional: `pr` (default) or `direct`;
+hubs created before it get the column when the first `direct` repo is added. The `Forge` column
+is optional too: when empty, hub reads the `origin` remote (`github.com` → GitHub, `gitlab.*` →
+GitLab; self-hosted hosts go in `HUB_GITHUB_HOSTS` / `HUB_GITLAB_HOSTS`, comma-separated).
+
+**The SessionStart hook** (`hub.py context`) prints, inside a hub only: Now and Blocked from
+`progress.md`; **Red CI**, the repos whose latest run on the base branch failed
+(`gh run list --branch <base> -L 1`, `glab ci list --ref <base>`), or `(none)`; and your open
+PRs/MRs. Forge calls run in parallel with an 8-second timeout each, and the output is capped at
+9,000 characters. `HUB_SKIP_CI=1` skips the CI calls and `HUB_SKIP_PRS=1` the PR/MR calls (set
+both to start sessions without touching the network).
 
 ## An example, end to end
 
@@ -146,6 +173,13 @@ branch `develop`) and `notifier` (a Python worker, on GitHub). The feature: **sa
 rebase, `head_pipeline` of the current head) and `glab mr merge`. Exit codes: 2 conflict,
 3 red pipeline, 4 merge failed.
 
+**Landing directly** (`plugin/scripts/land-direct.sh`, or `hub land`), for Flow `direct`. Run
+on the worktree: it refuses a dirty tree, refuses if the base moved (exit 2: rebase and rerun
+the checks), waits for the CI of the base's current tip and refuses if it is red (exit 3),
+pushes `HEAD:<base>` as a plain fast-forward (never forced; exit 4 if rejected), then waits for
+the CI of the pushed commit (exit 3 if it goes red: fix forward). The repo's own checkout is
+never touched.
+
 **DORA metrics** (`/hub:dora`, `plugin/scripts/dora.py`). Per repo, never per person: author
 data is not read. What counts as a production deploy comes from the `Deploys` column of
 `repos.md`: `branch` (every commit on the base branch, for continuous deployment), `tag:<glob>`,
@@ -163,14 +197,15 @@ It is the team-facing view; `progress.md` stays the owner's log.
 ## Using it in Spanish
 
 `hub init --lang es` (or answering "Spanish" in `/hub:init`) writes `progress.md` with Spanish
-headings (Ahora, Próximo, Bloqueado, Pausado, Hecho, Retomar acá) and tells agents to write notes
-in Spanish. The hook and the commands understand both sets of headings.
+headings (Ahora, Próximo, Bloqueado, Pausado, Hecho, Retomar acá), `decisions/_template.md` in
+Spanish (Contexto, Decisión, Consecuencias) and tells agents to write notes in Spanish. Folder
+names stay in English. The hook and the commands understand both sets of headings.
 
 ## Development
 
 ```sh
 python3 -m unittest discover -s tests     # hub.py, dora.py, radar-md.py
-bats tests/                               # merge-seq.sh against fake gh/glab, check-leaks.sh, the CLI
+bats tests/                               # merge-seq.sh and land-direct.sh against fake gh/glab, check-leaks.sh, the CLI
 shellcheck bin/hub scripts/*.sh plugin/scripts/*.sh tests/fakes/*
 claude plugin validate plugin && claude plugin validate .
 ```

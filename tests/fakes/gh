@@ -16,5 +16,13 @@ case "$1 $2" in
   "pr merge") touch "$FAKE_DIR/merged-$n"; echo "Merged pull request #$n" ;;
   "auth status") exit 0 ;;
   "pr list") cat "$FAKE_DIR/pr-list.json" 2>/dev/null || echo "[]" ;;
+  "run list")  # runs-branch-<branch>.json, or the sequence file runs-commit-<sha> (one JSON array per line)
+    [ -f "$FAKE_DIR/gh-fail" ] && exit 1
+    shift 2; br=""; sha=""
+    while [ $# -gt 0 ]; do
+      case "$1" in --branch|-b) br="$2"; shift 2 ;; --commit|-c) sha="$2"; shift 2 ;; *) shift ;; esac
+    done
+    if [ -n "$sha" ]; then if [ -f "$FAKE_DIR/runs-commit-$sha" ]; then pop "runs-commit-$sha"; else echo "[]"; fi
+    else cat "$FAKE_DIR/runs-branch-$br.json" 2>/dev/null || echo "[]"; fi ;;
   *) echo "fake gh: unhandled: $*" >&2; exit 1 ;;
 esac

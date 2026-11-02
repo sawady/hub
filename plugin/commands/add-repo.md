@@ -1,6 +1,6 @@
 ---
 description: Add a repo to the hub (repos.md row, per-repo agent, allowed directory)
-argument-hint: "<alias> <path> [what it is]"
+argument-hint: "<alias> <path> [what it is] [direct]"
 ---
 Add the repo `$1` at `$2` to this hub. Extra context: $ARGUMENTS
 
@@ -8,8 +8,11 @@ Add the repo `$1` at `$2` to this hub. Extra context: $ARGUMENTS
    the base branch (`git -C $2 symbolic-ref --short refs/remotes/origin/HEAD`), the forge (from the
    `origin` remote: GitHub or GitLab), the stack, and the check commands (lint, type-check, tests)
    from its README, CLAUDE.md / AGENTS.md, package.json, Makefile, pyproject, etc.
+   Also the flow: `pr` (branches and PRs/MRs, the default) or `direct` (work lands on the base
+   branch with no PR/MR, e.g. a solo project). Use `direct` only if I said so or the repo's docs
+   say it; otherwise `pr`.
 2. Run from the hub:
-   `python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/hub.py" add-repo $1 $2 --base <base> --about "<what it is>" --checks "<checks>"`.
+   `python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/hub.py" add-repo $1 $2 --base <base> --flow <pr|direct> --about "<what it is>" --checks "<checks>"`.
    It adds the row to `repos.md`, creates `.claude/agents/$1.md` and allows the path in
    `.claude/settings.json`.
 3. Read the repo's CLAUDE.md / AGENTS.md and fill the "easy to break" list in

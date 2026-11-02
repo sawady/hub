@@ -10,7 +10,7 @@ Before editing, read the repo's `CLAUDE.md` / `AGENTS.md` and anything they say 
 They are the law in that repo. Things that are easy to break here (edit this list as you learn):
 
 - Checks: `{{CHECKS}}`. Run them before finishing; iterate on a subset, run the full suite at the end.
-- Base branch: `{{BASE}}`. Never commit to it, never merge.
+- {{BASE_RULE}}
 - <generated code to regenerate after a change, e.g. an OpenAPI client>
 - <how to run things: containers, tool versions, env files>
 

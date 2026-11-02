@@ -22,6 +22,17 @@ case "$1" in
       list) cat "$FAKE_DIR/mr-list.json" 2>/dev/null || echo "[]" ;;
       *) echo "fake glab: unhandled mr $*" >&2; exit 1 ;;
     esac ;;
+  ci)
+    case "$2" in
+      list)  # pipelines-ref-<ref>.json, or the sequence file pipelines-sha-<sha>
+        shift 2; ref=""; sha=""
+        while [ $# -gt 0 ]; do
+          case "$1" in --ref|-r) ref="$2"; shift 2 ;; --sha) sha="$2"; shift 2 ;; *) shift ;; esac
+        done
+        if [ -n "$sha" ]; then if [ -f "$FAKE_DIR/pipelines-sha-$sha" ]; then pop "pipelines-sha-$sha"; else echo "[]"; fi
+        else cat "$FAKE_DIR/pipelines-ref-$ref.json" 2>/dev/null || echo "[]"; fi ;;
+      *) echo "fake glab: unhandled ci $*" >&2; exit 1 ;;
+    esac ;;
   auth) exit 0 ;;
   *) echo "fake glab: unhandled: $*" >&2; exit 1 ;;
 esac

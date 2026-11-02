@@ -13,6 +13,11 @@ launched on those repos, and where everything that happens is recorded. Notes ar
 - `features/<name>.md` holds the context of each feature that spans repos: the contract between
   repos, the PR/MR table, merge order, e2e test plan and decision log. Read it before touching code
   for that feature.
+- `decisions/NNNN-<title>.md` record decisions that outlive a feature (conventions, tools, rules
+  for a repo), numbered in order. They are **never rewritten**: a new decision supersedes an old
+  one, and the old one only gets its Status changed to "Superseded by NNNN". Create them with
+  `/hub:decision <title>` from `decisions/_template.md` (with `--lang es` its headings are in
+  Spanish: Contexto, Decisión, Consecuencias; the folder keeps its name). Respect them.
 - `journal/YYYY-MM-DD.md` are optional daily notes, written by `/hub:close`.
 - `research/` holds investigations that are not (yet) features.
 <!-- Optional: if you use the Radar, uncomment and fill in its URL.
@@ -36,11 +41,18 @@ never "today" or "last Tuesday".
    checked against the contract.
 4. Before a PR/MR leaves draft it goes through code review and the feature's e2e checklist.
 5. PRs/MRs are opened as drafts. Merging needs an explicit OK from {{OWNER}} (`/hub:merge`).
+6. Repos with Flow `direct` in `repos.md` have no PRs/MRs: after an explicit OK, `/hub:e2e` lands
+   the branch on the base by fast-forward and push, with the checks green and the base branch's
+   CI green, then watches the CI of the pushed commit.
+
+A feature may touch a single repo (the contract is then the public interface that changes), and
+the repos of a hub may be independent projects rather than parts of one product: the method is
+the same.
 
 ## Rules for agents
 
 - Work on branches, never directly on a repo's base branch. Never force-push unless a rebase was
-  asked for. Never merge without an explicit OK.
+  asked for. Never merge, and never push to a base branch (Flow `direct`), without an explicit OK.
 - Working files shared between parallel agents (PR descriptions, notes) are named after the branch
   or PR (`pr-<branch>.md`), never generic names like `pr.md`.
 - Never run anything that writes to production. If a task needs production data, ask.

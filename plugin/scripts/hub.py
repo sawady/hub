@@ -6,17 +6,28 @@ going on), `repos.md` (the map of the repos it orchestrates), `features/` (one f
 cross-repo feature) and a daily `journal/`.
 
 Subcommands:
-  context              print "Now" / "Blocked" from progress.md and your open PRs/MRs
-                       (used by the SessionStart hook; prints nothing outside a hub)
-  repos [--json]       list the repos in repos.md with their resolved path, base and forge
+  context [--no-prs] [--no-ci]
+                       print "Now" / "Blocked" from progress.md, the repos whose base branch
+                       has a red CI run, and your open PRs/MRs (used by the SessionStart hook;
+                       prints nothing outside a hub). HUB_SKIP_PRS=1 / HUB_SKIP_CI=1 skip the
+                       forge calls.
+  repos [--json]       list the repos in repos.md with their resolved path, base, forge, slug
+                       and flow (pr | direct)
   forge <path>         print github | gitlab | unknown for a git checkout
   slug <path>          print owner/repo (or group/.../project) of its origin remote
   prs [--json]         list your open PRs (GitHub) and MRs (GitLab) across the repos
+  ci [--json] [--red]  state of the latest CI run on each repo's base branch
+  ci-state <path> (--branch B | --sha S) [--forge F]
+                       print "<state>\t<url>" for one checkout: success, failure, pending,
+                       cancelled, manual, none (no run) or unknown (could not ask the forge)
   init <dir> [--name N] [--owner O] [--lang en|es] [--force]
                        create a new hub from the template
-  add-repo <alias> <path> [--base B] [--forge F] [--about TEXT] [--checks CMD]
+  add-repo <alias> <path> [--base B] [--flow pr|direct] [--forge F] [--about TEXT]
+                       [--checks CMD] [--deploys D]
                        add a repo to repos.md, create .claude/agents/<alias>.md and allow
                        the path in .claude/settings.json
+  new-decision <title> [--supersedes N]
+                       create decisions/NNNN-<slug>.md from decisions/_template.md
   sync-settings        make .claude/settings.json allow every path in repos.md
   doctor               check repos, forges and CLI auth
 
@@ -24,12 +35,14 @@ Only the standard library is used. Run it with `python3 -I`.
 """
 import argparse
 import concurrent.futures
+import datetime
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN = os.path.dirname(HERE)
@@ -52,6 +65,29 @@ SPANISH = {
     "## Done": "## Hecho",
     "### Resume here": "### Retomar acá",
     "Last updated": "Última actualización",
+}
+SPANISH_DECISION = {
+    "# NNNN — <Title>": "# NNNN — <Título>",
+    "- **Date:**": "- **Fecha:**",
+    "- **Status:** Accepted": "- **Estado:** Aceptada",
+    "- **Supersedes:**": "- **Reemplaza a:**",
+    "- **Deciders:** <who decided>": "- **Decidió:** <quién decidió>",
+    "## Context": "## Contexto",
+    "What forces a decision: the problem, the constraints, what was known at the time.":
+        "Qué obliga a decidir: el problema, las restricciones, lo que se sabía en ese momento.",
+    "## Decision": "## Decisión",
+    "What was decided, in one or two sentences, then the details that matter.":
+        "Qué se decidió, en una o dos oraciones, y después los detalles que importan.",
+    "## Consequences": "## Consecuencias",
+    "What gets easier or harder, and what has to be done because of it.":
+        "Qué se vuelve más fácil o más difícil, y qué hay que hacer por esto.",
+    "## Alternatives considered": "## Alternativas consideradas",
+    "- <option> — why not.": "- <opción> — por qué no.",
+}
+# per-file translations applied by `init --lang es` (path relative to the template)
+TRANSLATIONS_ES = {
+    "progress.md": SPANISH,
+    os.path.join("decisions", "_template.md"): SPANISH_DECISION,
 }
 MAX_SECTION_LINES = 60
 MAX_CONTEXT_CHARS = 9000  # SessionStart output over 10,000 chars is moved to a file by Claude Code
@@ -94,7 +130,9 @@ COLUMN_ALIASES = {
     "about": "about", "what": "about", "what it is": "about", "qué es": "about", "que es": "about",
     "checks": "checks", "commands": "checks", "comandos": "checks",
     "deploys": "deploys", "deploy": "deploys",
+    "flow": "flow", "flujo": "flow",
 }
+DEFAULT_COLUMNS = ["Alias", "Path", "Base", "Flow", "Forge", "About", "Checks"]
 
 
 def _cells(line):
@@ -211,8 +249,20 @@ def detect_forge(path, declared=""):
     return "unknown"
 
 
+def normalize_flow(name):
+    """pr (the default: branches and PRs/MRs) | direct (land on the base branch, no PRs/MRs) | "" if invalid."""
+    n = (name or "").strip().lower()
+    if n in ("", "pr", "prs", "mr", "mrs", "pr/mr"):
+        return "pr"
+    if n in ("direct", "directo", "push"):
+        return "direct"
+    return ""
+
+
 def resolve(repo):
     r = dict(repo)
+    r["base"] = repo.get("base") or "main"
+    r["flow"] = normalize_flow(repo.get("flow")) or "pr"
     r["exists"] = os.path.isdir(r["abspath"])
     r["forge"] = detect_forge(r["abspath"], repo.get("forge", "")) if r["exists"] else (normalize_forge(repo.get("forge", "")) or "unknown")
     r["slug"] = remote_slug(remote_url(r["abspath"])) if r["exists"] else ""
@@ -255,11 +305,120 @@ def open_prs(repo, timeout=8):
     return []
 
 
-def all_prs(repos):
+def _on_forges(repos, fns):
+    """Run fn(repo) for every fn in fns and every repo on a known forge, all in parallel.
+    Returns (repos, {fn: [result per repo]})."""
     repos = [r for r in repos if r["exists"] and r["forge"] in ("github", "gitlab")]
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(8, len(repos)))) as ex:
-        results = list(ex.map(open_prs, repos))
-    return [(r, prs) for r, prs in zip(repos, results)]
+    tasks = [(fn, r) for fn in fns for r in repos]
+    if not tasks:
+        return repos, {fn: [] for fn in fns}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, len(tasks))) as ex:
+        futures = [ex.submit(fn, r) for fn, r in tasks]
+        results = [f.result() for f in futures]
+    return repos, {fn: results[i * len(repos):(i + 1) * len(repos)] for i, fn in enumerate(fns)}
+
+
+def all_prs(repos):
+    repos, res = _on_forges(repos, [open_prs])
+    return list(zip(repos, res[open_prs]))
+
+
+# ---------------------------------------------------------------- CI on the base branch
+
+def _gh_run_state(run_):
+    if (run_.get("status") or "").lower() != "completed":
+        return "pending"
+    c = (run_.get("conclusion") or "").lower()
+    if c in ("success", "neutral", "skipped"):
+        return "success"
+    if c in ("failure", "timed_out", "startup_failure"):
+        return "failure"
+    return "cancelled"  # cancelled, action_required, stale
+
+
+def _gl_pipeline_state(p):
+    s = (p.get("status") or "").lower()
+    if s in ("success", "skipped"):
+        return "success"
+    if s == "failed":
+        return "failure"
+    if s == "canceled":
+        return "cancelled"
+    if s == "manual":
+        return "manual"
+    return "pending"  # created, waiting_for_resource, preparing, pending, running, scheduled
+
+
+def _aggregate(states):
+    if not states:
+        return "none"
+    for s in ("failure", "pending", "cancelled", "manual"):
+        if s in states:
+            return s
+    return "success"
+
+
+def ci_state(path, forge, branch=None, sha=None, timeout=8):
+    """CI of a checkout, from gh or glab: the latest run on `branch`, or every run for `sha`.
+
+    Returns {"state", "url", "title", "workflow", "sha"}. state is success | failure | pending |
+    cancelled | manual | none (no run) | unknown (no CLI, not authenticated, timeout...)."""
+    unknown = {"state": "unknown", "url": "", "title": "", "workflow": "", "sha": ""}
+    if forge == "github" and shutil.which("gh"):
+        cmd = ["gh", "run", "list", "--json", "status,conclusion,workflowName,displayTitle,url,headSha"]
+        cmd += ["--commit", sha, "-L", "50"] if sha else ["--branch", branch, "-L", "1"]
+        code, out = run(cmd, cwd=path, timeout=timeout)
+        if code != 0:
+            return unknown
+        try:
+            runs = [x for x in json.loads(out or "[]") if isinstance(x, dict)]
+        except ValueError:
+            return unknown
+        states = [_gh_run_state(x) for x in runs]
+        info = lambda x: (x.get("url"), x.get("displayTitle"), x.get("workflowName"), x.get("headSha"))  # noqa: E731
+    elif forge == "gitlab" and shutil.which("glab"):
+        cmd = ["glab", "ci", "list", "--output", "json"]
+        cmd += ["--sha", sha, "--per-page", "50"] if sha else ["--ref", branch, "--per-page", "1"]
+        code, out = run(cmd, cwd=path, timeout=timeout)
+        if code != 0:
+            return unknown
+        try:
+            runs = [x for x in json.loads(out or "[]") if isinstance(x, dict)]
+        except ValueError:
+            return unknown
+        states = [_gl_pipeline_state(x) for x in runs]
+        info = lambda x: (x.get("web_url"), x.get("name"), f"pipeline {x['id']}" if x.get("id") else "pipeline", x.get("sha"))  # noqa: E731
+    else:
+        return unknown
+    state = _aggregate(states)
+    pick = next((x for x, s in zip(runs, states) if s == state), None)
+    url, title, workflow, sha_ = info(pick) if pick else ("", "", "", "")
+    return {"state": state, "url": url or "", "title": title or "", "workflow": workflow or "", "sha": sha_ or ""}
+
+
+def base_ci(repo, timeout=8):
+    """The latest CI run on the repo's base branch (`gh run list --branch <base> -L 1`)."""
+    return ci_state(repo["abspath"], repo["forge"], branch=repo.get("base") or "main", timeout=timeout)
+
+
+def all_ci(repos):
+    repos, res = _on_forges(repos, [base_ci])
+    return list(zip(repos, res[base_ci]))
+
+
+def _ci_lines(ci):
+    red = [(r, c) for r, c in ci if c["state"] == "failure"]
+    lines = []
+    for r, c in red:
+        what = " — ".join(x for x in (c["workflow"], c["title"]) if x)
+        lines.append(f"- {r['alias']} ({r['base']}): failed{' — ' + what if what else ''}"
+                     f"{' — ' + c['url'] if c['url'] else ''}")
+    if not lines:
+        lines.append("(none)")
+    unknown = [r["alias"] for r, c in ci if c["state"] == "unknown"]
+    if unknown:
+        lines.append(f"(could not read CI for: {', '.join(unknown)})")
+    return lines
 
 
 # ---------------------------------------------------------------- progress.md
@@ -287,14 +446,18 @@ def extract_sections(text, keys, max_lines=MAX_SECTION_LINES):
     return "\n".join(out)
 
 
-def context(hub, with_prs=True):
+def context(hub, with_prs=True, with_ci=True):
     with open(os.path.join(hub, "progress.md"), encoding="utf-8") as f:
         text = f.read()
     parts = ["# Hub context (from progress.md)", "", extract_sections(text, ["now", "blocked"]) or "(no Now/Blocked sections)"]
+    fns = ([base_ci] if with_ci else []) + ([open_prs] if with_prs else [])
+    if fns:
+        repos, res = _on_forges([resolve(r) for r in load_repos(hub)], fns)
+    if with_ci:
+        parts += ["", "## Red CI (latest run on the base branch)", ""] + _ci_lines(list(zip(repos, res[base_ci])))
     if with_prs:
-        repos = [resolve(r) for r in load_repos(hub)]
         lines = []
-        for r, prs in all_prs(repos):
+        for r, prs in zip(repos, res[open_prs]):
             if prs:
                 lines.append(f"### {r['alias']} ({r['forge']})")
                 lines += [f"- {p['id']} {p['title']}{' [draft]' if p['draft'] else ''}"
@@ -328,11 +491,11 @@ def init(target, name, owner, lang="en", force=False):
         os.makedirs(dest_dir, exist_ok=True)
         for fn in files:
             src = os.path.join(root, fn)
-            dest = os.path.join(dest_dir, "progress.md" if fn == "progress.md" else fn)
+            dest = os.path.join(dest_dir, fn)
             with open(src, encoding="utf-8") as f:
                 text = render(f.read(), values)
-            if lang == "es" and fn == "progress.md":
-                for en, es in SPANISH.items():
+            if lang == "es":
+                for en, es in TRANSLATIONS_ES.get(os.path.normpath(os.path.join(rel, fn)), {}).items():
                     text = text.replace(en, es)
             if os.path.exists(dest) and not force:
                 continue
@@ -367,9 +530,29 @@ def sync_settings(hub):
     return added
 
 
-def add_repo(hub, alias, path, base="main", forge="", about="", checks=""):
+def _row(cells):
+    return "| " + " | ".join(cells) + " |"
+
+
+def _cell(text):
+    return (text or "").replace("|", "\\|")
+
+
+def flow_rule(base, flow):
+    """The line about the base branch in a repo's agent."""
+    if flow == "direct":
+        return (f"Base branch: `{base}`, Flow `direct` (no PRs/MRs). Still work on the branch or worktree "
+                f"you are given; the orchestrator lands it on `{base}` (fast-forward and push, CI green). "
+                f"Never push to `{base}` yourself, never force-push.")
+    return f"Base branch: `{base}`. Never commit to it, never merge: changes reach it through a PR/MR."
+
+
+def add_repo(hub, alias, path, base="main", forge="", about="", checks="", flow="", deploys=""):
     if not re.match(r"^[a-z0-9][a-z0-9._-]*$", alias):
         raise SystemExit("alias must be lowercase kebab-case (a-z, 0-9, ., _, -)")
+    if flow and not normalize_flow(flow):
+        raise SystemExit("flow must be pr or direct")
+    flow = normalize_flow(flow) if flow else ""
     if any(r["alias"] == alias for r in load_repos(hub)):
         raise SystemExit(f"{alias} is already in repos.md")
     repos_md = os.path.join(hub, "repos.md")
@@ -379,8 +562,7 @@ def add_repo(hub, alias, path, base="main", forge="", about="", checks=""):
     if not forge and os.path.isdir(abspath):
         f = detect_forge(abspath)
         forge = f if f != "unknown" else ""
-    row = f"| {alias} | `{path}` | {base} | {forge} | {about} | {('`' + checks + '`') if checks else ''} |"
-    # insert after the last row of the repos table (or after its separator)
+    # find the repos table (or append one)
     start = None
     for i, line in enumerate(lines):
         if line.strip().startswith("|") and i + 1 < len(lines):
@@ -389,14 +571,26 @@ def add_repo(hub, alias, path, base="main", forge="", about="", checks=""):
                 start = i
                 break
     if start is None:
-        lines += ["", "| Alias | Path | Base | Forge | About | Checks |", "|---|---|---|---|---|---|"]
+        lines += ["", _row(DEFAULT_COLUMNS), _row(["---"] * len(DEFAULT_COLUMNS))]
         start = len(lines) - 2
     end = start + 2
     while end < len(lines) and lines[end].strip().startswith("|"):
         end += 1
-    # drop a placeholder row like "| <alias> | ..." if it is the only row
-    body = [x for x in lines[start + 2:end] if not _clean(_cells(x)[0]).startswith("<")]
-    lines = lines[:start + 2] + body + [row] + lines[end:]
+    head = _cells(lines[start])
+    body = [_cells(x) for x in lines[start + 2:end]]
+    keys = [COLUMN_ALIASES.get(_clean(c).lower(), _clean(c).lower()) for c in head]
+    # a hub created before the Flow column gets it only when a repo needs it
+    if flow == "direct" and "flow" not in keys:
+        at = keys.index("base") + 1 if "base" in keys else len(keys)
+        keys.insert(at, "flow")
+        head.insert(at, "Flow")
+        body = [row[:at] + [""] + row[at:] for row in body]
+    values = {"alias": alias, "path": f"`{path}`", "base": base, "flow": flow or "pr", "forge": forge,
+              "about": _cell(about), "checks": f"`{_cell(checks)}`" if checks else "", "deploys": deploys}
+    row = [values.get(k, "") for k in keys]
+    # drop placeholder rows like "| <alias> | ..."
+    body = [x for x in body if not _clean(x[0]).startswith("<")]
+    lines = lines[:start] + [_row(head), _row(["---"] * len(head))] + [_row(x) for x in body] + [_row(row)] + lines[end:]
     with open(repos_md, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     agent = os.path.join(hub, ".claude", "agents", f"{alias}.md")
@@ -404,12 +598,61 @@ def add_repo(hub, alias, path, base="main", forge="", about="", checks=""):
         os.makedirs(os.path.dirname(agent), exist_ok=True)
         with open(os.path.join(SNIPPETS, "repo-agent.md"), encoding="utf-8") as f:
             text = render(f.read(), {"ALIAS": alias, "PATH": path, "BASE": base,
+                                     "BASE_RULE": flow_rule(base, flow or "pr"),
                                      "ABOUT": about or "a repo of this hub",
                                      "CHECKS": checks or "the checks listed in its CLAUDE.md / README"})
         with open(agent, "w", encoding="utf-8") as f:
             f.write(text)
     sync_settings(hub)
-    return row
+    return _row(row)
+
+
+# ---------------------------------------------------------------- decisions
+
+def _slug(title):
+    t = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode().lower()
+    return re.sub(r"[^a-z0-9]+", "-", t).strip("-")[:60] or "decision"
+
+
+def new_decision(hub, title, supersedes=None, today=None):
+    """Create decisions/NNNN-<slug>.md from decisions/_template.md. Decisions are never rewritten:
+    a superseding one only changes the Status line of the old one. Returns the new path."""
+    d = os.path.join(hub, "decisions")
+    os.makedirs(d, exist_ok=True)
+    tpl = os.path.join(d, "_template.md")
+    if not os.path.isfile(tpl):
+        tpl = os.path.join(TEMPLATE, "decisions", "_template.md")
+    files = sorted(fn for fn in os.listdir(d) if re.match(r"^\d{4}-.*\.md$", fn))
+    n = max([int(fn[:4]) for fn in files], default=0) + 1
+    old = None
+    if supersedes is not None:
+        old = next((fn for fn in files if int(fn[:4]) == int(supersedes)), None)
+        if not old:
+            raise SystemExit(f"no decision {int(supersedes):04d} in decisions/")
+    num = f"{n:04d}"
+    name = f"{num}-{_slug(title)}.md"
+    today = today or datetime.date.today().isoformat()
+    with open(tpl, encoding="utf-8") as f:
+        text = f.read()
+    text = re.sub(r"^# NNNN — .*$", lambda m: f"# {num} — {title}", text, count=1, flags=re.M)
+    text = re.sub(r"^(- \*\*(?:Date|Fecha):\*\*) .*$", lambda m: f"{m.group(1)} {today}", text, count=1, flags=re.M)
+    if old:
+        text = re.sub(r"^(- \*\*(?:Supersedes|Reemplaza a):\*\*) .*$",
+                      lambda m: f"{m.group(1)} [{old[:4]}]({old})", text, count=1, flags=re.M)
+        path_old = os.path.join(d, old)
+        with open(path_old, encoding="utf-8") as f:
+            prev = f.read()
+        prev, k = re.subn(r"^- \*\*(Status|Estado):\*\* .*$",
+                          lambda m: f"- **{m.group(1)}:** {'Reemplazada por' if m.group(1) == 'Estado' else 'Superseded by'} [{num}]({name})",
+                          prev, count=1, flags=re.M)
+        if not k:
+            prev = prev.rstrip("\n") + f"\n\nSuperseded by [{num}]({name}).\n"
+        with open(path_old, "w", encoding="utf-8") as f:
+            f.write(prev)
+    path = os.path.join(d, name)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    return path
 
 
 # ---------------------------------------------------------------- doctor
@@ -417,13 +660,16 @@ def add_repo(hub, alias, path, base="main", forge="", about="", checks=""):
 def doctor(hub):
     problems = 0
     lines = [f"hub: {hub}"]
-    for r in (resolve(x) for x in load_repos(hub)):
+    for x in load_repos(hub):
+        r = resolve(x)
         status = "ok"
         if not r["exists"]:
             status, problems = "missing checkout", problems + 1
         elif r["forge"] == "unknown":
             status, problems = "forge unknown (set the Forge column)", problems + 1
-        lines.append(f"- {r['alias']}: {r['abspath']} [{r['forge']}] {r['slug']} — {status}")
+        if not normalize_flow(x.get("flow", "")):
+            status, problems = f"unknown Flow '{x['flow']}' (use pr or direct)", problems + 1
+        lines.append(f"- {r['alias']}: {r['abspath']} [{r['forge']}, {r['flow']}] {r['slug']} — {status}")
     for cli, forge in (("gh", "github"), ("glab", "gitlab")):
         used = any(normalize_forge(r.get("forge", "")) == forge or resolve(r)["forge"] == forge for r in load_repos(hub))
         if not used:
@@ -445,6 +691,7 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("context")
     c.add_argument("--no-prs", action="store_true")
+    c.add_argument("--no-ci", action="store_true")
     c = sub.add_parser("repos")
     c.add_argument("--json", action="store_true")
     c = sub.add_parser("forge")
@@ -453,6 +700,16 @@ def main(argv=None):
     c.add_argument("path")
     c = sub.add_parser("prs")
     c.add_argument("--json", action="store_true")
+    c = sub.add_parser("ci")
+    c.add_argument("--json", action="store_true")
+    c.add_argument("--red", action="store_true", help="only repos whose latest run failed")
+    c = sub.add_parser("ci-state")
+    c.add_argument("path")
+    g = c.add_mutually_exclusive_group(required=True)
+    g.add_argument("--branch")
+    g.add_argument("--sha")
+    c.add_argument("--forge", default="")
+    c.add_argument("--timeout", type=int, default=20)
     c = sub.add_parser("init")
     c.add_argument("dir")
     c.add_argument("--name", default="")
@@ -463,9 +720,14 @@ def main(argv=None):
     c.add_argument("alias")
     c.add_argument("path")
     c.add_argument("--base", default="main")
+    c.add_argument("--flow", default="", help="pr (default) or direct")
     c.add_argument("--forge", default="")
     c.add_argument("--about", default="")
     c.add_argument("--checks", default="")
+    c.add_argument("--deploys", default="")
+    c = sub.add_parser("new-decision")
+    c.add_argument("title")
+    c.add_argument("--supersedes", type=int)
     sub.add_parser("sync-settings")
     sub.add_parser("doctor")
     a = ap.parse_args(argv)
@@ -480,11 +742,17 @@ def main(argv=None):
     if a.cmd == "slug":
         print(remote_slug(remote_url(a.path)))
         return 0
+    if a.cmd == "ci-state":
+        forge = normalize_forge(a.forge) or detect_forge(a.path)
+        c = ci_state(a.path, forge, branch=a.branch, sha=a.sha, timeout=a.timeout)
+        print(f"{c['state']}\t{c['url']}")
+        return 0
 
     hub = find_hub()
     if a.cmd == "context":
         if hub:  # outside a hub the hook stays silent
-            sys.stdout.write(context(hub, with_prs=not a.no_prs and os.environ.get("HUB_SKIP_PRS") != "1"))
+            sys.stdout.write(context(hub, with_prs=not a.no_prs and os.environ.get("HUB_SKIP_PRS") != "1",
+                                     with_ci=not a.no_ci and os.environ.get("HUB_SKIP_CI") != "1"))
         return 0
     if not hub:
         print("not inside a hub (no progress.md + repos.md found)", file=sys.stderr)
@@ -495,7 +763,7 @@ def main(argv=None):
             print(json.dumps(rows, indent=1, ensure_ascii=False))
         else:
             for r in rows:
-                print("\t".join([r["alias"], r["abspath"], r.get("base", "") or "main", r["forge"], r["slug"]]))
+                print("\t".join([r["alias"], r["abspath"], r["base"], r["forge"], r["slug"], r["flow"]]))
         return 0
     if a.cmd == "prs":
         res = all_prs([resolve(r) for r in load_repos(hub)])
@@ -506,8 +774,21 @@ def main(argv=None):
                 for p in prs:
                     print(f"{r['alias']}\t{p['id']}\t{'draft' if p['draft'] else 'ready'}\t{p['title']}")
         return 0
+    if a.cmd == "ci":
+        res = all_ci([resolve(r) for r in load_repos(hub)])
+        if a.red:
+            res = [(r, c) for r, c in res if c["state"] == "failure"]
+        if a.json:
+            print(json.dumps({r["alias"]: dict(c, base=r["base"]) for r, c in res}, indent=1, ensure_ascii=False))
+        else:
+            for r, c in res:
+                print("\t".join([r["alias"], r["base"], c["state"], c["workflow"], c["url"]]))
+        return 0
     if a.cmd == "add-repo":
-        print(add_repo(hub, a.alias, a.path, a.base, a.forge, a.about, a.checks))
+        print(add_repo(hub, a.alias, a.path, a.base, a.forge, a.about, a.checks, a.flow, a.deploys))
+        return 0
+    if a.cmd == "new-decision":
+        print(os.path.relpath(new_decision(hub, a.title, a.supersedes), hub))
         return 0
     if a.cmd == "sync-settings":
         added = sync_settings(hub)

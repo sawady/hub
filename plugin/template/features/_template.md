@@ -23,6 +23,9 @@ a repo reads only this section to know what the other side expects.
 
 **Merge order:** <producer first, e.g. api → client → app>
 
+For repos with Flow `direct` (no PRs/MRs) the PR/MR column holds `direct` and the commit that
+landed on the base branch.
+
 ## E2E test plan
 
 - [ ] Happy path across all repos

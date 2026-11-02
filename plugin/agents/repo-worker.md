@@ -20,7 +20,8 @@ the other repos are doing in parallel.
 5. Run the repo's checks (the `Checks` column of `repos.md`, or what its docs say) until green.
    Iterate on a subset; run the full suite at the end.
 6. Commit to your branch in the repo's commit style. Do not push unless told to. Never force-push
-   unless a rebase was requested. Never merge.
+   unless a rebase was requested. Never merge. In repos with Flow `direct` (no PRs/MRs) you still
+   commit to the branch you were given: landing it on the base branch is the orchestrator's job.
 
 Reply with a short report: files changed, the contract surface you expose or consume (endpoints,
 fields, events), check results, assumptions, and open questions. Name any working file after the

@@ -7,6 +7,9 @@ Build the current state of the work.
    forge, slug). For each one, in parallel where possible:
    - `git -C <path> fetch -q`, the current branch, uncommitted changes, unpushed commits, and
      worktrees (`git -C <path> worktree list`).
+   - The CI of the base branch: `python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/hub.py" ci` (alias,
+     base, state of the latest run, workflow, URL) for all repos at once. Red ones go first in
+     the reply; for repos with Flow `direct` a red base blocks landing anything.
    - Your open PRs/MRs: GitHub → `gh pr list --author @me --json number,title,isDraft,reviewDecision,mergeStateStatus,statusCheckRollup,url`;
      GitLab → `glab mr list --author=@me` and `glab mr view <iid>` / `glab ci status` for each.
      Note draft or ready, the last pipeline/check state, unresolved review threads, and how far

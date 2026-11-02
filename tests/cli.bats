@@ -65,3 +65,44 @@ setup() {
   [ "$status" -eq 1 ]
   [[ "$output" == *"ghost"*"missing checkout"* ]]
 }
+
+@test "flow direct, red CI in the context, ci --red" {
+  "$ROOT/bin/hub" init "$W/hq" >/dev/null
+  cd "$W/hq"
+  "$ROOT/bin/hub" add-repo orders-api ../orders-api >/dev/null
+  run "$ROOT/bin/hub" add-repo storefront ../storefront --base master --flow direct
+  [ "$status" -eq 0 ]
+  [[ "$output" == "| storefront | \`../storefront\` | master | direct | gitlab |"* ]]
+  run "$ROOT/bin/hub" repos
+  [[ "$output" == *$'\tmain\tgithub\tacme/orders-api\tpr'* ]]
+  [[ "$output" == *$'\tmaster\tgitlab\tacme/web/storefront\tdirect'* ]]
+  grep -q 'Flow `direct`' .claude/agents/storefront.md
+  echo '[{"status":"completed","conclusion":"success","workflowName":"ci","url":"u"}]' > "$FAKE_DIR/runs-branch-main.json"
+  echo '[{"id":5,"status":"failed","web_url":"https://example.com/p/5"}]' > "$FAKE_DIR/pipelines-ref-master.json"
+  run "$ROOT/bin/hub" context
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"## Red CI"*"- storefront (master): failed — pipeline 5 — https://example.com/p/5"* ]]
+  [[ "$output" != *"orders-api (main)"* ]]
+  run "$ROOT/bin/hub" ci --red
+  [ "$status" -eq 0 ]
+  [ "$output" = $'storefront\tmaster\tfailure\tpipeline 5\thttps://example.com/p/5' ]
+  HUB_SKIP_CI=1 run "$ROOT/bin/hub" context
+  [[ "$output" != *"Red CI"* ]]
+  run "$ROOT/bin/hub" context --no-ci --no-prs
+  [[ "$output" != *"Red CI"* && "$output" != *"open PRs"* ]]
+}
+
+@test "new-decision numbers decisions and supersedes without rewriting" {
+  "$ROOT/bin/hub" init "$W/hq" --lang es >/dev/null
+  cd "$W/hq"
+  run "$ROOT/bin/hub" new-decision "Trabajo directo en main"
+  [ "$status" -eq 0 ]
+  [ "$output" = "decisions/0001-trabajo-directo-en-main.md" ]
+  grep -q "^# 0001 — Trabajo directo en main$" decisions/0001-trabajo-directo-en-main.md
+  grep -q "^- \*\*Fecha:\*\* $(date +%F)$" decisions/0001-trabajo-directo-en-main.md
+  run "$ROOT/bin/hub" new-decision "Volver a PRs" --supersedes 1
+  [ "$output" = "decisions/0002-volver-a-prs.md" ]
+  grep -q "Reemplazada por \[0002\](0002-volver-a-prs.md)" decisions/0001-trabajo-directo-en-main.md
+  run "$ROOT/bin/hub" new-decision "x" --supersedes 7
+  [ "$status" -ne 0 ]
+}

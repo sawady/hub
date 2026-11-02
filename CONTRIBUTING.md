@@ -17,7 +17,7 @@ validate the plugin.
 
 ```sh
 python3 -m unittest discover -s tests     # hub.py, dora.py, radar-md.py
-bats tests/                               # merge-seq.sh against fake gh/glab, check-leaks.sh, the CLI
+bats tests/                               # merge-seq.sh and land-direct.sh against fake gh/glab, check-leaks.sh, the CLI
 shellcheck bin/hub scripts/*.sh plugin/scripts/*.sh tests/fakes/*
 claude plugin validate plugin && claude plugin validate .
 ```

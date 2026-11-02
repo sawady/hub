@@ -8,3 +8,4 @@ small notification worker on GitHub. The feature in flight is **saved carts**.
 - [`repos.md`](repos.md) — the map of repos, forges and checks
 - [`features/saved-carts.md`](features/saved-carts.md) — contract first, PR/MR table, merge order
 - [`journal/2026-03-02.md`](journal/2026-03-02.md) — one day, closed with `/hub:close`
+- [`decisions/0001-events-are-versioned.md`](decisions/0001-events-are-versioned.md) — a decision that outlives the feature

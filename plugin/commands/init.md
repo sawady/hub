@@ -1,5 +1,5 @@
 ---
-description: Create a new hub (CLAUDE.md, progress.md, repos.md, features/, journal/, research/) from the template
+description: Create a new hub (CLAUDE.md, progress.md, repos.md, features/, decisions/, journal/, research/) from the template
 argument-hint: "[dir] [--name NAME] [--owner OWNER] [--lang en|es]"
 ---
 Create a hub with: $ARGUMENTS
@@ -12,10 +12,11 @@ Create a hub with: $ARGUMENTS
    in progress.md; the commands understand both).
 3. Run `python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/hub.py" init <dir> --name <name> --owner <owner> --lang <lang>`.
 4. Offer to add the repos now. For each one the user names, run
-   `python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/hub.py" add-repo <alias> <path> --base <branch> --about "<what it is>" --checks "<command>"`
+   `python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/hub.py" add-repo <alias> <path> --base <branch> --flow <pr|direct> --about "<what it is>" --checks "<command>"`
    from the hub directory. Infer base branch, stack and check commands from each repo
    (`git -C <path> symbolic-ref refs/remotes/origin/HEAD`, its README / CLAUDE.md / package files)
-   and show them before writing.
+   and show them before writing. Flow is `pr` unless the user works directly on the base branch
+   of that repo (`direct`).
 5. Run `python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/hub.py" doctor` from the hub and report problems
    (missing checkouts, unknown forge, `gh` / `glab` not authenticated).
 6. If the directory is not a git repo yet, `git init` it and propose a first commit. Do not create
