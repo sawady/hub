@@ -20,7 +20,7 @@ Database layout:
 ## First time: publish it
 
 1. Copy `${CLAUDE_PLUGIN_ROOT}/radar/radar.html` into the hub (`radar/radar.html`) and edit its
-   `radar-config` block: title, subtitle and areas. Nothing else needs changing.
+   `<title>` and its `radar-config` block (title, subtitle and areas). Nothing else needs changing.
 2. Publish it with the Artifact tool (`file_path` = that copy) and these capabilities:
    `{"db": {"rules": [{"path": "", "read": "view", "write": "admin"}, {"path": "requests", "read": "view", "write": "admin"}, {"path": "requests/{self}", "read": "view", "write": "interact"}]}, "user": {"scopes": ["profile"]}}`.
    Then the owner shares it: Contributor for people who should file requests, Editor for people

@@ -15,7 +15,7 @@
         { "path": "requests", "read": "view", "write": "admin" },
         { "path": "requests/{self}", "read": "view", "write": "interact" } ] },
       "user": { "scopes": ["profile"] } }
-  Edit the config block below (title, areas) before publishing.
+  Edit <title> and the config block below (title, areas) before publishing.
 -->
 <script id="radar-config" type="application/json">
 {
@@ -125,7 +125,7 @@ label.l { font-size: 12px; color: var(--muted); display: block; margin-bottom: 2
   const $ = (s) => document.querySelector(s);
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const nowIso = () => new Date().toISOString();
-  const ymd = (t) => (t ? new Date(t).toISOString().slice(0, 10) : "");
+  const ymd = (t) => { const d = new Date(t); return t && !isNaN(d) ? d.toISOString().slice(0, 10) : ""; };
   const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => (t.hidden = true), 2600); }
 
@@ -310,7 +310,9 @@ label.l { font-size: 12px; color: var(--muted); display: block; margin-bottom: 2
     S.ready = true;
     if (!db) { render(); return; }
     S.db = db;
-    S.readOnly = !S.uid || S.canWrite === false;
+    // can("data.write") answers for the root rule (admin here), not for requests/{self}, so it is
+    // false for Contributors too: only a refused write can tell them from Viewers (see submitNew).
+    S.readOnly = !S.uid;
     const timer = setTimeout(() => { if (!S.loaded) { $("#status").hidden = false; $("#status").textContent = "Still loading the Radar…"; } }, 10000);
     const onErr = (what) => (e) => { console.error(what, e); clearTimeout(timer); $("#status").hidden = false; $("#status").textContent = `Could not load ${what}: ${(e && e.message) || "error"}`; };
     const toMap = (snap) => new Map(snap.docs.map((d) => [d.id, d.data()]));

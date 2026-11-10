@@ -32,7 +32,10 @@ def tz_from(s):
 def ymd(t, tz):
     if not t:
         return ""
-    return datetime.fromisoformat(t.replace("Z", "+00:00")).astimezone(tz).strftime("%Y-%m-%d")
+    try:
+        return datetime.fromisoformat(str(t).replace("Z", "+00:00")).astimezone(tz).strftime("%Y-%m-%d")
+    except ValueError:  # anyone with Contributor access can write their own documents
+        return ""
 
 
 def load(dump):
@@ -67,8 +70,9 @@ def line(i, tz, rank=None):
         meta.append("**waiting on " + ", ".join(i["waitingOn"]) + "**")
     if i.get("pending"):
         meta.append("new, untriaged")
-    if i.get("createdAt"):
-        meta.append(f"filed {ymd(i['createdAt'], tz)}")
+    filed = ymd(i.get("createdAt"), tz)
+    if filed:
+        meta.append(f"filed {filed}")
     s = head + (" — " + " · ".join(meta) if meta else "")
     links = [f"[{l.get('label') or l['url']}]({l['url']})" for l in safe_links(i)]
     if links:

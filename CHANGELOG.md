@@ -14,6 +14,14 @@ project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   `--update FILE` to rewrite a marked block of a file such as `README.md`.
 - A plugin icon (`plugin/.claude-plugin/icon.png`).
 
+### Fixed
+
+- Radar: Contributors can file requests again. The page hid the button because it read
+  `can("data.write")`, which answers for the root rule and not for `requests/{self}`.
+- Radar: a malformed date no longer breaks an item's sheet, nor stops `radar-md.py` from
+  regenerating the mirror.
+- The `radar` skill now says to edit `<title>` too, the name the artifact gets in the gallery.
+
 ## [0.1.0] - 2026-11-02
 
 First public version.

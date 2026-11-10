@@ -75,5 +75,15 @@ class RadarMd(unittest.TestCase):
             self.assertIn("## Shipped", f.read())
 
 
+    def test_a_malformed_date_does_not_stop_the_sync(self):
+        write(f"{self.dump}/items/e.json", {"title": "Bad date", "state": "Later", "createdAt": "not-a-date"})
+        write(f"{self.dump}/items/f.json", {"title": "Bad ship date", "state": "Shipped", "shippedAt": "soon"})
+        md = self.render()
+        self.assertIn("- **Bad date**", md)
+        self.assertNotIn("filed  ", md)
+        self.assertNotIn("Bad date** — filed", md)
+        self.assertIn("| no date | Bad ship date |", md)
+
+
 if __name__ == "__main__":
     unittest.main()
