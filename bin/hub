@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # hub — command line for an engineering hub (the same helpers the Claude Code plugin uses).
 #   hub init <dir> [--name N] [--owner O] [--lang en|es]
+#   hub [--hub DIR] <command>          (the hub, if it is not the current directory or a parent)
 #   hub add-repo <alias> <path> [--base B] [--flow pr|direct] [--forge github|gitlab] [--about TEXT] [--checks CMD]
 #   hub repos | prs | ci | doctor | sync-settings | context
 #   hub portfolio [--json] [--update FILE]
@@ -12,7 +13,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 S="$ROOT/plugin/scripts"
 case "${1:-}" in
-  ""|-h|--help|help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' ;;
+  ""|-h|--help|help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//' ;;
   merge) shift; exec "$S/merge-seq.sh" "$@" ;;
   land) shift; exec "$S/land-direct.sh" "$@" ;;
   dora) shift; exec python3 -I "$S/dora.py" "$@" ;;

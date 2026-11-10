@@ -153,3 +153,20 @@ MD
   run "$ROOT/bin/hub" portfolio
   [ "$status" -eq 1 ]
 }
+
+@test "--hub works on a hub from outside it, and refuses a directory that is not one" {
+  "$ROOT/bin/hub" init "$BATS_TEST_TMPDIR/h" --name h >/dev/null
+  git init -q "$BATS_TEST_TMPDIR/app"
+  git -C "$BATS_TEST_TMPDIR/app" remote add origin git@github.com:acme/app.git
+  cd "$BATS_TEST_TMPDIR"
+  run "$ROOT/bin/hub" --hub "$BATS_TEST_TMPDIR/h" add-repo app ../app
+  [ "$status" -eq 0 ]
+  grep -q '| app | `../app` |' "$BATS_TEST_TMPDIR/h/repos.md"
+  run "$ROOT/bin/hub" --hub "$BATS_TEST_TMPDIR/h" repos
+  [ "$status" -eq 0 ]
+  [[ "$output" == app$'\t'"$BATS_TEST_TMPDIR/app"* ]]
+  mkdir "$BATS_TEST_TMPDIR/plain"
+  run "$ROOT/bin/hub" --hub "$BATS_TEST_TMPDIR/plain" repos
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"is not a hub"* ]]
+}

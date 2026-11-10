@@ -849,6 +849,7 @@ def doctor(hub):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="hub", description=__doc__.split("\n\n")[0])
+    ap.add_argument("--hub", metavar="DIR", help="the hub to work on (default: $CLAUDE_PROJECT_DIR, then the current directory and its parents)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("context")
     c.add_argument("--no-prs", action="store_true")
@@ -912,7 +913,10 @@ def main(argv=None):
         print(f"{c['state']}\t{c['url']}")
         return 0
 
-    hub = find_hub()
+    if a.hub and not is_hub(a.hub):
+        print(f"{a.hub} is not a hub (no progress.md + repos.md)", file=sys.stderr)
+        return 1
+    hub = os.path.abspath(a.hub) if a.hub else find_hub()
     if a.cmd == "context":
         if hub:  # outside a hub the hook stays silent
             sys.stdout.write(context(hub, with_prs=not a.no_prs and os.environ.get("HUB_SKIP_PRS") != "1",

@@ -9,6 +9,8 @@ project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- `--hub DIR` on `hub.py` and `bin/hub`, to work on a hub from outside it. `/hub:init <dir>` uses it
+  to add the repos and run `doctor`, because a session may not be allowed to `cd` there.
 - `/hub:portfolio` and `hub portfolio`: one line per repo (project, repo, state, next step) from
   `repos.md` and `progress.md`, without calling any forge. `--json` for the full text and
   `--update FILE` to rewrite a marked block of a file such as `README.md`.
