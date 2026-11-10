@@ -8,6 +8,7 @@ setup() {
   export FAKE_DIR="$BATS_TEST_TMPDIR/fake"; mkdir -p "$FAKE_DIR"; : > "$FAKE_DIR/calls"
   export PATH="$ROOT/tests/fakes:$PATH"
   export HUB_POLL_SECONDS=0 HUB_NO_CHECKS_GRACE=2 HUB_MAX_WAIT_SECONDS=50
+  unset HUB_LEAK_TERMS
   export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
   T="$BATS_TEST_TMPDIR"
   git init -q --bare "$T/origin.git"
@@ -130,6 +131,62 @@ origin_master() { git -C "$T/origin.git" rev-parse master; }
   [[ "$output" == *"CI failure on the pushed commit"*"https://example.com/p/2"* ]]
   grep -q "^glab ci list --output json --sha $TIP" "$FAKE_DIR/calls"
   [ "$(origin_master)" = "$HEAD" ]
+}
+
+scan_with() {  # scan_with <terms>: configure the repo's leak scan with a made-up term list
+  printf '%s\n' "$@" > "$T/terms"
+  git -C "$T/repo" config hub.leakScan "\"$ROOT/scripts/check-leaks.sh\" --history --terms \"$T/terms\""
+}
+
+@test "a configured leak scan that comes out clean lets it land" {
+  scan_with nothingmatches
+  runs "$TIP" "$GREEN"; runs "$HEAD" "$GREEN"
+  land
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"leak scan clean"* ]]
+  [ "$(origin_master)" = "$HEAD" ]
+}
+
+@test "a leak scan hit refuses to land (exit 5): nothing pushed, no CI asked, term not printed" {
+  echo "notes for acmecorp" > "$T/wt/c.txt"; git -C "$T/wt" add c.txt; git -C "$T/wt" commit -qm three
+  scan_with acmecorp
+  runs "$TIP" "$GREEN"
+  land
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"c.txt:1: term #1"* ]]
+  [[ "$output" == *"leak scan exited 1"* ]]
+  [[ "$output" != *"cmecorp"* ]]
+  [ "$(origin_master)" = "$TIP" ]
+  refute_grep -q "run list" "$FAKE_DIR/calls"
+  land --dry-run
+  [ "$status" -eq 5 ]
+}
+
+@test "a hit only in the history refuses too" {
+  echo "acmecorp" > "$T/wt/c.txt"; git -C "$T/wt" add c.txt; git -C "$T/wt" commit -qm three
+  git -C "$T/wt" rm -q c.txt; git -C "$T/wt" commit -qm four
+  scan_with acmecorp
+  land
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"history: commit"*"term #1"* ]]
+  [ "$(origin_master)" = "$TIP" ]
+}
+
+@test "a leak scan that cannot run (no term list) refuses too" {
+  git -C "$T/repo" config hub.leakScan "\"$ROOT/scripts/check-leaks.sh\" --history --terms \"$T/missing\""
+  land
+  [ "$status" -eq 5 ]
+  [[ "$output" == *"leak scan exited 2"* ]]
+  [ "$(origin_master)" = "$TIP" ]
+}
+
+@test "the scan runs from the top of the worktree, even with -C on a subdirectory" {
+  mkdir -p "$T/wt/sub"
+  git -C "$T/repo" config hub.leakScan 'test -f b.txt'
+  runs "$TIP" "$GREEN"; runs "$HEAD" "$GREEN"
+  run "$ROOT/plugin/scripts/land-direct.sh" -C "$T/wt/sub" --base master --forge github
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"leak scan clean"* ]]
 }
 
 @test "usage errors" {

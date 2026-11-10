@@ -177,10 +177,13 @@ rebase, `head_pipeline` of the current head) and `glab mr merge`. Exit codes: 2 
 
 **Landing directly** (`plugin/scripts/land-direct.sh`, or `hub land`), for Flow `direct`. Run
 on the worktree: it refuses a dirty tree, refuses if the base moved (exit 2: rebase and rerun
-the checks), waits for the CI of the base's current tip and refuses if it is red (exit 3),
+the checks), runs the repo's leak scan if it has one and refuses on a hit (exit 5; see below),
+waits for the CI of the base's current tip and refuses if it is red (exit 3),
 pushes `HEAD:<base>` as a plain fast-forward (never forced; exit 4 if rejected), then waits for
 the CI of the pushed commit (exit 3 if it goes red: fix forward). The repo's own checkout is
-never touched.
+never touched. The leak scan is a command set per repo in git config, run from the top of the
+worktree; anything but exit 0 stops the landing before CI is asked or anything is pushed:
+`git -C <repo> config hub.leakScan "scripts/check-leaks.sh --history"`.
 
 **DORA metrics** (`/hub:dora`, `plugin/scripts/dora.py`). Per repo, never per person: author
 data is not read. What counts as a production deploy comes from the `Deploys` column of

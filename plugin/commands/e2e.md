@@ -36,10 +36,13 @@ Implement the feature `features/$1.md`. Scope of this run: $ARGUMENTS
      at a time, running in the background:
      `"${CLAUDE_PLUGIN_ROOT}/scripts/land-direct.sh" -C <worktree> --base <base>`.
      It refuses a dirty worktree, refuses if `<base>` moved (exit 2: rebase the branch on
-     `origin/<base>`, rerun the checks, ask again), waits for the CI of the current tip of
-     `<base>` and refuses if it is red (exit 3: the base must be fixed first), pushes `HEAD:<base>`
-     as a fast-forward (never forced), and waits for the CI of the pushed commit (exit 3 if it goes
-     red: report it, fix forward, never rewrite history; exit 4 if the push is rejected).
+     `origin/<base>`, rerun the checks, ask again), runs the repo's leak scan when the repo sets
+     `git config hub.leakScan` and refuses unless it exits 0 (exit 5: nothing was pushed; report
+     the `path:line: term #N` lines as they are, never look up or print the term), waits for the
+     CI of the current tip of `<base>` and refuses if it is red (exit 3: the base must be fixed
+     first), pushes `HEAD:<base>` as a fast-forward (never forced), and waits for the CI of the
+     pushed commit (exit 3 if it goes red: report it, fix forward, never rewrite history; exit 4
+     if the push is rejected).
      When it lands, record the commit in the feature's table (`direct` + short sha) and remove the
      worktree and branch (`git -C <repo> worktree remove <worktree>`, `git -C <repo> branch -d <branch>`).
      The repo's own checkout is not touched; say so, in case its base branch should be pulled.

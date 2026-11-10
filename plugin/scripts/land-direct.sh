@@ -3,14 +3,16 @@
 # Run it on the worktree the work was done in. It never touches the repo's own checkout and never
 # force-pushes: the base moves on the remote only by fast-forward.
 #   1. fetch origin; refuse a dirty worktree, and refuse if <base> moved (HEAD must contain origin/<base>)
-#   2. wait for the CI of the current tip of origin/<base>; refuse if it is red
-#   3. git push origin HEAD:<base>
-#   4. wait for the CI of the pushed commit; fail if it goes red (fix forward, never rewrite history)
+#   2. if the repo sets `git config hub.leakScan <command>`, run it from the top of the worktree
+#      and refuse unless it exits 0 (e.g. "scripts/check-leaks.sh --history")
+#   3. wait for the CI of the current tip of origin/<base>; refuse if it is red
+#   4. git push origin HEAD:<base>
+#   5. wait for the CI of the pushed commit; fail if it goes red (fix forward, never rewrite history)
 #
 #   land-direct.sh [-C <worktree>] --base <branch> [--forge github|gitlab] [--dry-run] [--no-wait]
 #
 # Exit codes: 0 landed (or nothing to land) · 1 usage/setup · 2 base moved, rebase needed ·
-# 3 CI red, cancelled or still running at the timeout · 4 push rejected.
+# 3 CI red, cancelled or still running at the timeout · 4 push rejected · 5 leak scan failed.
 # Env: HUB_POLL_SECONDS (default 20), HUB_MAX_WAIT_SECONDS (default 3600),
 #      HUB_NO_CHECKS_GRACE (seconds to wait for a CI run to appear after the push, default 60).
 set -uo pipefail
@@ -21,7 +23,7 @@ MAX_WAIT="${HUB_MAX_WAIT_SECONDS:-3600}"
 GRACE="${HUB_NO_CHECKS_GRACE:-60}"
 
 repo="."; base=""; forge=""; dry=0; wait_after=1
-usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1; }
+usage() { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1; }
 while [ $# -gt 0 ]; do
   case "$1" in
     -C) repo="$2"; shift 2 ;;
@@ -69,6 +71,18 @@ log "== landing $(git rev-parse --abbrev-ref HEAD) ${head:0:8} on $base (${tip:0
 if git merge-base --is-ancestor "$head" "$tip"; then log "   already on $base; nothing to land"; exit 0; fi
 git merge-base --is-ancestor "$tip" "$head" || die 2 "$base moved: rebase on origin/$base, rerun the checks and try again"
 log "   $(git rev-list --count "$tip..$head") commit(s) to land, fast-forward"
+
+scan="$(git config --get hub.leakScan || true)"
+if [ -n "$scan" ]; then
+  log "   leak scan: $scan"
+  if out="$(cd "$(git rev-parse --show-toplevel)" && bash -c "$scan" 2>&1)"; then
+    log "   leak scan clean"
+  else
+    code=$?
+    printf '%s\n' "$out" | tail -n 20 | sed 's/^/     /'
+    die 5 "leak scan exited $code: fix it before landing; nothing was pushed"
+  fi
+fi
 
 ci_gate "$tip" "$base (${tip:0:8})" 0
 if [ "$dry" = 1 ]; then log "   would push ${head:0:8} to origin/$base (dry run)"; exit 0; fi
