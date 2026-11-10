@@ -3,7 +3,11 @@
 # For each one: mark it ready, rebase it on the server if it is behind its base, wait for its
 # pipeline/checks on the current head, merge. Stops at the first problem.
 #
-#   merge-seq.sh [-C <repo-path>] [--forge github|gitlab] [--method squash|rebase|merge] [--dry-run] <n> [<n> ...]
+#   merge-seq.sh [-C <repo-path>] [--forge github|gitlab] [--method squash|rebase|merge]
+#                [--delete-branch] [--dry-run] <n> [<n> ...]
+#   --delete-branch  after each merge, delete its branch on the remote (GitHub: through the API,
+#                    never a fork's; GitLab: --remove-source-branch). Local branches are not touched.
+#                    Without it, branches are left as they are.
 #
 # Exit codes: 0 all merged · 1 usage/setup · 2 conflict or rebase failed · 3 pipeline failed or
 # timed out · 4 merge failed or PR/MR closed.
@@ -20,14 +24,15 @@ GRACE="${HUB_NO_CHECKS_GRACE:-60}"
 MSS_TRIES="${HUB_MERGE_STATE_TRIES:-15}"
 MAX_REBASES="${HUB_MAX_REBASES:-3}"
 
-repo="."; forge=""; method="squash"; dry=0; nums=()
-usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1; }
+repo="."; forge=""; method="squash"; dry=0; delete_branch=0; nums=()
+usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1; }
 while [ $# -gt 0 ]; do
   case "$1" in
     -C) repo="$2"; shift 2 ;;
     --forge) forge="$2"; shift 2 ;;
     --method) method="$2"; shift 2 ;;
     --dry-run) dry=1; shift ;;
+    --delete-branch) delete_branch=1; shift ;;
     -h|--help) usage ;;
     -*) echo "unknown option $1" >&2; usage ;;
     *) nums+=("${1#[#!]}"); shift ;;
@@ -84,6 +89,24 @@ gh_wait_checks() {
   done
 }
 
+# Delete a merged PR's branch on the remote through the API: `gh pr merge --delete-branch` would
+# also delete the local branch and switch the checkout. A failure here is only a warning: the PR
+# is already merged.
+gh_delete_branch() {
+  local n="$1" info branch out
+  info="$(gh pr view "$n" --json headRefName,isCrossRepository)" || { log "   warning: cannot read the branch of #$n; not deleted"; return 0; }
+  branch="$(jq -r '.headRefName // ""' <<<"$info")"
+  [ -n "$branch" ] || { log "   warning: no branch for #$n; not deleted"; return 0; }
+  if [ "$(jq -r '.isCrossRepository // false' <<<"$info")" = "true" ]; then log "   branch $branch is in a fork; not deleted"; return 0; fi
+  if out="$(gh api -X DELETE "repos/{owner}/{repo}/git/refs/heads/$branch" 2>&1)"; then
+    log "   deleted remote branch $branch"
+  elif [[ "$out" == *"Reference does not exist"* ]]; then
+    log "   remote branch $branch was already deleted"
+  else
+    log "   warning: could not delete remote branch $branch: ${out:0:200}"
+  fi
+}
+
 gh_one() {
   local n="$1" info state draft mss rebases=0 out
   info="$(gh pr view "$n" --json state,isDraft,mergeStateStatus,headRefOid)" || die 4 "#$n: cannot read PR"
@@ -114,6 +137,7 @@ gh_one() {
   state="$(gh pr view "$n" --json state --jq .state)"
   [ "$state" = "MERGED" ] || die 4 "#$n is $state after merge (merge queue or branch protection?): $out"
   log "   merged $(gh pr view "$n" --json mergeCommit --jq '.mergeCommit.oid // ""' | cut -c1-8)"
+  if [ "$delete_branch" = 1 ]; then gh_delete_branch "$n"; fi
 }
 
 # ------------------------------------------------------------------ GitLab (glab)
@@ -164,10 +188,12 @@ gl_one() {
   done
   local flag=()
   case "$method" in squash) flag=(--squash) ;; rebase) flag=(--rebase) ;; esac
+  if [ "$delete_branch" = 1 ]; then flag+=(--remove-source-branch); fi
   out="$(glab mr merge "$n" --yes "${flag[@]}" 2>&1)" || die 4 "!$n merge: $out"
   state="$(gl_api "merge_requests/$n" | jq -r .state)"
   [ "$state" = "merged" ] || die 4 "!$n is $state after merge: $out"
   log "   merged $(gl_api "merge_requests/$n" | jq -r '.merge_commit_sha // .squash_commit_sha // ""' | cut -c1-8)"
+  if [ "$delete_branch" = 1 ]; then log "   asked GitLab to remove the source branch"; fi
 }
 
 case "$forge" in

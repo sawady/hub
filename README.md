@@ -105,7 +105,7 @@ and/or `glab` authenticated for the repos that use them.
 | `/hub:status` | Standup: branches, worktrees, base-branch CI, PRs/MRs and pipelines of every repo; refreshes Now in `progress.md` |
 | `/hub:portfolio [--update FILE]` | One line per repo: project, repo, state and next step, from `repos.md` and `progress.md`; `--update` rewrites the marked block of a file such as `README.md` |
 | `/hub:close` | Close the day: `journal/<date>.md`, `progress.md`, feature decision logs, commit |
-| `/hub:merge <alias> <n>...` | Merge PRs/MRs in order: mark ready, rebase when behind, wait for the pipeline, merge; stops at the first problem. Repos with Flow `direct` have nothing to merge: it checks they landed, or offers to land them |
+| `/hub:merge <alias> <n>...` | Merge PRs/MRs in order: mark ready, rebase when behind, wait for the pipeline, merge; stops at the first problem. `--delete-branch` also deletes each merged branch on the remote. Repos with Flow `direct` have nothing to merge: it checks they landed, or offers to land them |
 | `/hub:decision <title>` | Record a decision in `decisions/NNNN-<slug>.md` (or the folder in `HUB_DECISIONS_DIR`); `--supersedes N` marks the old one as superseded |
 | `/hub:dora [alias...]` | DORA metrics per repo (deploy frequency, lead time, change failure rate, time to restore) |
 
@@ -174,7 +174,10 @@ branch `develop`) and `notifier` (a Python worker, on GitHub). The feature: **sa
 `gh pr ready`, `gh pr update-branch --rebase` when `BEHIND`, waits on `gh pr checks`, then
 `gh pr merge --squash|--rebase|--merge`. For GitLab: the same through the API (server-side
 rebase, `head_pipeline` of the current head) and `glab mr merge`. Exit codes: 2 conflict,
-3 red pipeline, 4 merge failed.
+3 red pipeline, 4 merge failed. Branches stay on the remote unless you pass `--delete-branch`
+(`/hub:merge ... --delete-branch`): then each merged PR's branch is deleted through the GitHub
+API (never a fork's, and never the local branch or checkout), or the MR is merged with
+`--remove-source-branch` on GitLab.
 
 **Landing directly** (`plugin/scripts/land-direct.sh`, or `hub land`), for Flow `direct`. Run
 on the worktree: it refuses a dirty tree, refuses if the base moved (exit 2: rebase and rerun

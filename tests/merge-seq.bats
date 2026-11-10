@@ -210,6 +210,68 @@ gh_pr() {  # gh_pr <n> <isDraft> <mergeStateStatus> [state]
   grep -q '^glab mr merge 2 --yes$' "$FAKE_DIR/calls"
 }
 
+@test "github: by default the branch is left on the remote" {
+  git -C "$REPO" remote add origin git@github.com:acme/app.git
+  gh_pr 3 false CLEAN
+  echo '[{"bucket":"pass"}]' > "$FAKE_DIR/checks-3"
+  run "$ROOT/plugin/scripts/merge-seq.sh" -C "$REPO" 3
+  [ "$status" -eq 0 ]
+  refute_grep -e '^gh api' -e 'delete' "$FAKE_DIR/calls"
+}
+
+@test "github: --delete-branch deletes each merged PR's remote branch through the API" {
+  git -C "$REPO" remote add origin git@github.com:acme/app.git
+  for n in 3 4; do
+    printf '{"state":"OPEN","isDraft":false,"mergeStateStatus":"CLEAN","headRefOid":"abc","headRefName":"feat/saved-carts-%s","isCrossRepository":false}\n' "$n" > "$FAKE_DIR/view-$n.json"
+    echo '[{"bucket":"pass"}]' > "$FAKE_DIR/checks-$n"
+  done
+  run "$ROOT/plugin/scripts/merge-seq.sh" -C "$REPO" --delete-branch 3 4
+  [ "$status" -eq 0 ]
+  grep -q '^gh pr merge 3 --squash$' "$FAKE_DIR/calls"   # not gh's --delete-branch: it would touch the local checkout
+  grep -q '^gh api -X DELETE repos/{owner}/{repo}/git/refs/heads/feat/saved-carts-3$' "$FAKE_DIR/calls"
+  grep -q '^gh api -X DELETE repos/{owner}/{repo}/git/refs/heads/feat/saved-carts-4$' "$FAKE_DIR/calls"
+  # each branch goes only after its PR merged
+  [ "$(grep -n 'pr merge 3' "$FAKE_DIR/calls" | cut -d: -f1)" -lt "$(grep -n 'heads/feat/saved-carts-3' "$FAKE_DIR/calls" | cut -d: -f1)" ]
+  [[ "$output" == *"deleted remote branch feat/saved-carts-4"* ]]
+}
+
+@test "github: --delete-branch leaves a fork's branch, and a failed delete is only a warning" {
+  git -C "$REPO" remote add origin git@github.com:acme/app.git
+  printf '{"state":"OPEN","isDraft":false,"mergeStateStatus":"CLEAN","headRefOid":"abc","headRefName":"patch-1","isCrossRepository":true}\n' > "$FAKE_DIR/view-5.json"
+  printf '{"state":"OPEN","isDraft":false,"mergeStateStatus":"CLEAN","headRefOid":"abc","headRefName":"feat/a","isCrossRepository":false}\n' > "$FAKE_DIR/view-6.json"
+  printf '{"state":"OPEN","isDraft":false,"mergeStateStatus":"CLEAN","headRefOid":"abc","headRefName":"feat/b","isCrossRepository":false}\n' > "$FAKE_DIR/view-7.json"
+  for n in 5 6 7; do echo '[{"bucket":"pass"}]' > "$FAKE_DIR/checks-$n"; done
+  echo "gh: Reference does not exist (HTTP 422)" > "$FAKE_DIR/api-error"
+  run "$ROOT/plugin/scripts/merge-seq.sh" -C "$REPO" --delete-branch 5 6
+  [ "$status" -eq 0 ]
+  refute_grep 'heads/patch-1' "$FAKE_DIR/calls"
+  [[ "$output" == *"branch patch-1 is in a fork; not deleted"* ]]
+  [[ "$output" == *"remote branch feat/a was already deleted"* ]]
+  echo "HTTP 403: Resource not accessible" > "$FAKE_DIR/api-error"
+  run "$ROOT/plugin/scripts/merge-seq.sh" -C "$REPO" --delete-branch 7
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"warning: could not delete remote branch feat/b: HTTP 403"* ]]
+  [ -f "$FAKE_DIR/merged-7" ]
+}
+
+@test "github: --delete-branch deletes nothing when the merge does not happen" {
+  git -C "$REPO" remote add origin git@github.com:acme/app.git
+  gh_pr 7 false CLEAN
+  echo '[{"bucket":"fail"}]' > "$FAKE_DIR/checks-7"
+  run "$ROOT/plugin/scripts/merge-seq.sh" -C "$REPO" --delete-branch 7
+  [ "$status" -eq 3 ]
+  refute_grep '^gh api' "$FAKE_DIR/calls"
+}
+
+@test "gitlab: --delete-branch asks the merge to remove the source branch" {
+  git -C "$REPO" remote add origin https://gitlab.com/acme/api.git
+  echo '{"state":"opened","draft":false,"diverged_commits_count":0}' > "$FAKE_DIR/mr-2.json"
+  echo success > "$FAKE_DIR/pipeline-2"
+  run "$ROOT/plugin/scripts/merge-seq.sh" -C "$REPO" --delete-branch 2
+  [ "$status" -eq 0 ]
+  grep -q '^glab mr merge 2 --yes --squash --remove-source-branch$' "$FAKE_DIR/calls"
+}
+
 @test "unknown forge without --forge fails with exit 1" {
   git -C "$REPO" remote add origin git@git.example.org:acme/api.git
   run "$ROOT/plugin/scripts/merge-seq.sh" -C "$REPO" 1

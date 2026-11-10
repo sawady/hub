@@ -19,6 +19,10 @@ project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   that already keep them elsewhere (`decisiones/`): `--dir DIR`, or `HUB_DECISIONS_DIR` (for
   example in the `env` of `.claude/settings.json`). The folder must be inside the hub. Without
   either, `decisions/` as before.
+- `/hub:merge` and `merge-seq.sh` take `--delete-branch`: after each merge, the PR's branch is
+  deleted on the remote through the GitHub API (never a fork's, never the local branch, and a
+  failed delete is only a warning), or the MR is merged with `--remove-source-branch` on GitLab.
+  Without it, branches stay as before.
 - `--hub DIR` on `hub.py` and `bin/hub`, to work on a hub from outside it. `/hub:init <dir>` uses it
   to add the repos and run `doctor`, because a session may not be allowed to `cd` there.
 - `/hub:portfolio` and `hub portfolio`: one line per repo (project, repo, state, next step) from

@@ -30,6 +30,8 @@ case "$1 $2" in
     if [ -f "$FAKE_DIR/merge-conflict-$n" ]; then echo "X Pull request is not mergeable" >&2; exit 1; fi
     touch "$FAKE_DIR/merged-$n"; echo "Merged pull request #$n" ;;
   "auth status") exit 0 ;;
+  "api -X")  # gh api -X DELETE <path>: fails with the text of $FAKE_DIR/api-error if it exists
+    if [ -f "$FAKE_DIR/api-error" ]; then cat "$FAKE_DIR/api-error" >&2; exit 1; fi ;;
   "pr list") cat "$FAKE_DIR/pr-list.json" 2>/dev/null || echo "[]" ;;
   "run list")  # runs-branch-<branch>.json, or the sequence file runs-commit-<sha> (one JSON array per line)
     [ -f "$FAKE_DIR/gh-fail" ] && exit 1
