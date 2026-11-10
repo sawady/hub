@@ -56,7 +56,8 @@ the base branch's CI green; then it watches the CI of the pushed commit.
 
 **Decisions are never rewritten.** Choices that outlive a feature (a convention, a tool, a rule
 for a repo) go in `decisions/NNNN-<title>.md`. When one changes, a new decision supersedes it;
-the old file only gets "Superseded by NNNN" in its Status.
+the old file only gets "Superseded by NNNN" in its Status. A hub that already keeps its decisions
+in another folder sets `HUB_DECISIONS_DIR` (for example in the `env` of `.claude/settings.json`).
 
 **Absolute dates, always.** "Yesterday" is wrong the moment you read it tomorrow. Every entry in
 the hub carries `YYYY-MM-DD`.
@@ -105,7 +106,7 @@ and/or `glab` authenticated for the repos that use them.
 | `/hub:portfolio [--update FILE]` | One line per repo: project, repo, state and next step, from `repos.md` and `progress.md`; `--update` rewrites the marked block of a file such as `README.md` |
 | `/hub:close` | Close the day: `journal/<date>.md`, `progress.md`, feature decision logs, commit |
 | `/hub:merge <alias> <n>...` | Merge PRs/MRs in order: mark ready, rebase when behind, wait for the pipeline, merge; stops at the first problem. Repos with Flow `direct` have nothing to merge: it checks they landed, or offers to land them |
-| `/hub:decision <title>` | Record a decision in `decisions/NNNN-<slug>.md`; `--supersedes N` marks the old one as superseded |
+| `/hub:decision <title>` | Record a decision in `decisions/NNNN-<slug>.md` (or the folder in `HUB_DECISIONS_DIR`); `--supersedes N` marks the old one as superseded |
 | `/hub:dora [alias...]` | DORA metrics per repo (deploy frequency, lead time, change failure rate, time to restore) |
 
 The plugin also ships a `repo-worker` agent (used by `/hub:e2e` when a repo has no agent of its

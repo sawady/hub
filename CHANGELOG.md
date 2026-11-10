@@ -15,6 +15,10 @@ project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - `land-direct.sh` (`hub land`, `/hub:e2e` with Flow `direct`) runs the repo's leak scan before
   landing when the repo sets one with `git config hub.leakScan "<command>"`, and refuses to land
   (exit 5, nothing pushed) unless it exits 0. Repos without it work as before.
+- `/hub:decision` and `hub new-decision` can use another decisions folder of the hub, for hubs
+  that already keep them elsewhere (`decisiones/`): `--dir DIR`, or `HUB_DECISIONS_DIR` (for
+  example in the `env` of `.claude/settings.json`). The folder must be inside the hub. Without
+  either, `decisions/` as before.
 - `--hub DIR` on `hub.py` and `bin/hub`, to work on a hub from outside it. `/hub:init <dir>` uses it
   to add the repos and run `doctor`, because a session may not be allowed to `cd` there.
 - `/hub:portfolio` and `hub portfolio`: one line per repo (project, repo, state, next step) from

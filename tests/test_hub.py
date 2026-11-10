@@ -437,6 +437,39 @@ class HubFiles(unittest.TestCase):
         with open(p) as f:
             self.assertIn("- **Fecha:** 2026-03-02", f.read())
 
+    def test_new_decision_in_another_folder(self):
+        d = os.path.join(self.hub, "decisiones")
+        os.makedirs(d)
+        with open(os.path.join(d, "0004-licencias.md"), "w") as f:
+            f.write("# 0004 — Licencias\n\nFecha: 2026-03-01\n")
+        p = hub.new_decision(self.hub, "Trabajo directo en main", folder="decisiones", today="2026-03-02")
+        self.assertEqual(p, os.path.join(d, "0005-trabajo-directo-en-main.md"))
+        with mock.patch.dict(os.environ, {"HUB_DECISIONS_DIR": "decisiones"}):
+            p = hub.new_decision(self.hub, "Volver a PRs", supersedes=4, today="2026-03-03")
+            self.assertEqual(os.path.basename(p), "0006-volver-a-prs.md")
+            with self.assertRaises(SystemExit) as e:
+                hub.new_decision(self.hub, "x", supersedes=1)
+            self.assertIn("no decision 0001 in decisiones/", str(e.exception))
+            # an explicit folder wins over the environment
+            p = hub.new_decision(self.hub, "Elsewhere", folder="decisions", today="2026-03-03")
+            self.assertEqual(p, os.path.join(self.hub, "decisions", "0001-elsewhere.md"))
+        with open(os.path.join(d, "0004-licencias.md")) as f:
+            self.assertTrue(f.read().endswith("\n\nSuperseded by [0006](0006-volver-a-prs.md).\n"))
+        with open(os.path.join(d, "0005-trabajo-directo-en-main.md")) as f:
+            self.assertIn("# 0005 — Trabajo directo en main", f.read())  # no _template.md there: the plugin's
+        self.assertFalse(os.path.exists(os.path.join(d, "_template.md")))
+
+    def test_decisions_folder_default_and_limits(self):
+        with mock.patch.dict(os.environ, {"HUB_DECISIONS_DIR": ""}):
+            self.assertEqual(hub.decisions_dir(self.hub), os.path.join(self.hub, "decisions"))
+        self.assertEqual(hub.decisions_dir(self.hub, "notes/adr"), os.path.join(self.hub, "notes", "adr"))
+        for bad in ("..", "../decisions", ".", os.path.dirname(self.hub)):
+            with self.assertRaises(SystemExit, msg=bad):
+                hub.decisions_dir(self.hub, bad)
+        with self.assertRaises(SystemExit):
+            hub.new_decision(self.hub, "x", folder="../out")
+        self.assertFalse(os.path.exists(os.path.join(self.d, "out")))
+
     def test_context_size_cap(self):
         with open(os.path.join(self.hub, "progress.md"), "w") as f:
             f.write("## Now\n" + "".join(f"- {'x' * 300} {i}\n" for i in range(55)))

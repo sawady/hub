@@ -5,7 +5,7 @@
 #   hub add-repo <alias> <path> [--base B] [--flow pr|direct] [--forge github|gitlab] [--about TEXT] [--checks CMD]
 #   hub repos | prs | ci | doctor | sync-settings | context
 #   hub portfolio [--json] [--update FILE]
-#   hub new-decision "<title>" [--supersedes N]
+#   hub new-decision "<title>" [--supersedes N] [--dir DIR]   (default: $HUB_DECISIONS_DIR, then decisions)
 #   hub merge -C <repo> [--method squash|rebase|merge] <n> [<n> ...]
 #   hub land -C <worktree> --base <branch>     (Flow direct: fast-forward and push, CI green)
 #   hub dora [--days N] [alias ...]

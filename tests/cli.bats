@@ -9,7 +9,7 @@ setup() {
   git init -q "$W/storefront" && git -C "$W/storefront" remote add origin https://gitlab.com/acme/web/storefront.git
   export FAKE_DIR="$BATS_TEST_TMPDIR/fake"; mkdir -p "$FAKE_DIR"; : > "$FAKE_DIR/calls"
   export PATH="$ROOT/tests/fakes:$PATH"
-  unset CLAUDE_PROJECT_DIR
+  unset CLAUDE_PROJECT_DIR HUB_DECISIONS_DIR
 }
 
 @test "help" {
@@ -113,6 +113,26 @@ setup() {
   grep -q "Reemplazada por \[0002\](0002-volver-a-prs.md)" decisions/0001-trabajo-directo-en-main.md
   run "$ROOT/bin/hub" new-decision "x" --supersedes 7
   [ "$status" -ne 0 ]
+}
+
+@test "new-decision in another folder: --dir, or HUB_DECISIONS_DIR (a hub like decisiones/)" {
+  "$ROOT/bin/hub" init "$W/hq" >/dev/null
+  mkdir -p "$W/hq/decisiones"
+  printf '# 0001 — Trabajo directo\n\nFecha: 2026-03-01\n' > "$W/hq/decisiones/0001-trabajo-directo.md"
+  run "$ROOT/bin/hub" --hub "$W/hq" new-decision "Licencias" --dir decisiones
+  [ "$status" -eq 0 ]
+  [ "$output" = "decisiones/0002-licencias.md" ]
+  HUB_DECISIONS_DIR=decisiones run "$ROOT/bin/hub" --hub "$W/hq" new-decision "Volver a PRs" --supersedes 1
+  [ "$status" -eq 0 ]
+  [ "$output" = "decisiones/0003-volver-a-prs.md" ]
+  grep -q "^Superseded by \[0003\](0003-volver-a-prs.md)\.$" "$W/hq/decisiones/0001-trabajo-directo.md"
+  [ "$(ls "$W/hq/decisions")" = "$(printf 'README.md\n_template.md')" ]   # decisions/ untouched
+  run "$ROOT/bin/hub" --hub "$W/hq" new-decision "Default"   # without either, decisions/ as before
+  [ "$output" = "decisions/0001-default.md" ]
+  run "$ROOT/bin/hub" --hub "$W/hq" new-decision "Out" --dir ../elsewhere
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"inside the hub"* ]]
+  [ ! -e "$W/elsewhere" ]
 }
 
 @test "portfolio: one line per repo, json, and the marked block of a file" {

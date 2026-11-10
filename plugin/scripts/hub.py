@@ -30,8 +30,9 @@ Subcommands:
                        [--checks CMD] [--deploys D]
                        add a repo to repos.md, create .claude/agents/<alias>.md and allow
                        the path in .claude/settings.json
-  new-decision <title> [--supersedes N]
-                       create decisions/NNNN-<slug>.md from decisions/_template.md
+  new-decision <title> [--supersedes N] [--dir DIR]
+                       create decisions/NNNN-<slug>.md from decisions/_template.md; DIR (or
+                       $HUB_DECISIONS_DIR) is another folder of the hub, such as decisiones
   sync-settings        make .claude/settings.json allow every path in repos.md
   doctor               check repos, forges and CLI auth
 
@@ -817,10 +818,25 @@ def _slug(title):
     return re.sub(r"[^a-z0-9]+", "-", t).strip("-")[:60] or "decision"
 
 
-def new_decision(hub, title, supersedes=None, today=None):
-    """Create decisions/NNNN-<slug>.md from decisions/_template.md. Decisions are never rewritten:
-    a superseding one only changes the Status line of the old one. Returns the new path."""
-    d = os.path.join(hub, "decisions")
+DECISIONS_DIR = "decisions"
+
+
+def decisions_dir(hub, folder=None):
+    """The hub's decisions folder: `folder`, else $HUB_DECISIONS_DIR, else decisions/. It must be
+    inside the hub."""
+    folder = folder or os.environ.get("HUB_DECISIONS_DIR") or DECISIONS_DIR
+    root = os.path.abspath(hub)
+    path = os.path.normpath(os.path.join(root, os.path.expanduser(folder)))
+    if path == root or os.path.commonpath([root, path]) != root:
+        raise SystemExit(f"the decisions folder must be a folder inside the hub, not {folder}")
+    return path
+
+
+def new_decision(hub, title, supersedes=None, today=None, folder=None):
+    """Create <folder>/NNNN-<slug>.md from <folder>/_template.md (decisions/ unless `folder` or
+    $HUB_DECISIONS_DIR say otherwise). Decisions are never rewritten: a superseding one only
+    changes the Status line of the old one. Returns the new path."""
+    d = decisions_dir(hub, folder)
     os.makedirs(d, exist_ok=True)
     tpl = os.path.join(d, "_template.md")
     if not os.path.isfile(tpl):
@@ -831,7 +847,7 @@ def new_decision(hub, title, supersedes=None, today=None):
     if supersedes is not None:
         old = next((fn for fn in files if int(fn[:4]) == int(supersedes)), None)
         if not old:
-            raise SystemExit(f"no decision {int(supersedes):04d} in decisions/")
+            raise SystemExit(f"no decision {int(supersedes):04d} in {os.path.relpath(d, os.path.abspath(hub))}/")
     num = f"{n:04d}"
     name = f"{num}-{_slug(title)}.md"
     today = today or datetime.date.today().isoformat()
@@ -935,6 +951,7 @@ def main(argv=None):
     c = sub.add_parser("new-decision")
     c.add_argument("title")
     c.add_argument("--supersedes", type=int)
+    c.add_argument("--dir", default="", help="decisions folder inside the hub (default: $HUB_DECISIONS_DIR, then decisions)")
     sub.add_parser("sync-settings")
     sub.add_parser("doctor")
     a = ap.parse_args(argv)
@@ -1008,7 +1025,7 @@ def main(argv=None):
         print(add_repo(hub, a.alias, a.path, a.base, a.forge, a.about, a.checks, a.flow, a.deploys))
         return 0
     if a.cmd == "new-decision":
-        print(os.path.relpath(new_decision(hub, a.title, a.supersedes), hub))
+        print(os.path.relpath(new_decision(hub, a.title, a.supersedes, folder=a.dir), hub))
         return 0
     if a.cmd == "sync-settings":
         added = sync_settings(hub)
