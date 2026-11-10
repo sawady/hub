@@ -106,3 +106,50 @@ setup() {
   run "$ROOT/bin/hub" new-decision "x" --supersedes 7
   [ "$status" -ne 0 ]
 }
+
+@test "portfolio: one line per repo, json, and the marked block of a file" {
+  "$ROOT/bin/hub" init "$W/hq" >/dev/null
+  cd "$W/hq"
+  "$ROOT/bin/hub" add-repo orders-api ../orders-api >/dev/null
+  "$ROOT/bin/hub" add-repo storefront ../storefront --base develop >/dev/null
+  cat > progress.md <<'MD'
+# Progress
+
+## Now
+
+- **orders-api** — saved carts in review — next: merge #41
+
+## Next
+
+- storefront — dark mode
+MD
+  run "$ROOT/bin/hub" portfolio
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "| Project | Repo | State | Next step |" ]
+  [ "${lines[2]}" = '| orders-api | `acme/orders-api` | saved carts in review | merge #41 |' ]
+  [ "${lines[3]}" = '| storefront | `acme/web/storefront` | queued | dark mode |' ]
+  [ "${#lines[@]}" -eq 4 ]
+  run "$ROOT/bin/hub" portfolio --json
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s' "$output" | jq -r '.[1].repo')" = "acme/web/storefront" ]
+  [ ! -s "$FAKE_DIR/calls" ]  # the portfolio asks no forge
+  printf '# Hub\n\n<!-- hub:portfolio -->\nstale\n<!-- /hub:portfolio -->\n\nKeep this.\n' > README.md
+  run "$ROOT/bin/hub" portfolio --update README.md
+  [ "$status" -eq 0 ]
+  [ "$(grep -c stale README.md)" -eq 0 ]
+  grep -q '^| orders-api | ' README.md
+  grep -q '^Keep this.$' README.md
+}
+
+@test "portfolio --update needs the markers; outside a hub it fails" {
+  "$ROOT/bin/hub" init "$W/hq" >/dev/null
+  cd "$W/hq"
+  echo "# Hub" > README.md
+  run "$ROOT/bin/hub" portfolio --update README.md
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"hub:portfolio"* ]]
+  [ "$(cat README.md)" = "# Hub" ]
+  cd "$BATS_TEST_TMPDIR"
+  run "$ROOT/bin/hub" portfolio
+  [ "$status" -eq 1 ]
+}

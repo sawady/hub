@@ -2,6 +2,7 @@
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -455,6 +456,172 @@ class PluginLayout(unittest.TestCase):
                 self.assertIn("description:", head, fn)
         for name in ("feature", "e2e", "status", "close", "merge", "init", "add-repo", "dora", "decision"):
             self.assertTrue(os.path.isfile(os.path.join(ROOT, "plugin", "commands", f"{name}.md")), name)
+
+
+class Portfolio(unittest.TestCase):
+    PROGRESS = """# Progress
+
+Last updated: 2026-03-02
+
+## Now
+
+### Resume here (2026-03-02)
+
+- **orders-api** — saved carts endpoints in review — next: merge #41 (`features/saved-carts.md`)
+- checkout latency — p95 regression, seen from storefront and
+  orders-api; nothing confirmed yet.
+  - notifier is a nested bullet and does not count
+
+## Next
+
+- notifier — retry policy for failed emails
+- `storefront`: dark mode — Next: pick the tokens. Then ask design.
+
+## Blocked
+
+- search-indexer — waiting on the data team for the catalog export, since 2026-02-27
+
+## Paused
+
+- invoices — paused on 2026-02-20 for saved carts
+
+## Done
+
+### Week of 2026-02-23
+
+- 2026-02-26: warehouse shipped
+"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.hub = self.tmp.name
+
+    def write(self, progress=None, aliases=("orders-api",)):
+        with open(os.path.join(self.hub, "progress.md"), "w", encoding="utf-8") as f:
+            f.write(self.PROGRESS if progress is None else progress)
+        rows = "".join(f"| {a} | `../{a}` | main | github |\n" for a in aliases)
+        with open(os.path.join(self.hub, "repos.md"), "w", encoding="utf-8") as f:
+            f.write("| Alias | Path | Base | Forge |\n|---|---|---|---|\n" + rows)
+
+    def rows(self, *aliases, progress=None):
+        self.write(progress, aliases)
+        rows, lang = hub.portfolio(self.hub)
+        return {r["project"]: r for r in rows}, lang
+
+    def test_bullet_that_starts_with_the_alias_wins_over_a_mention(self):
+        rows, lang = self.rows("orders-api")
+        self.assertEqual(lang, "en")
+        self.assertEqual(rows["orders-api"]["state"], "saved carts endpoints in review")
+        self.assertEqual(rows["orders-api"]["next"], "merge #41")
+        self.assertEqual(rows["orders-api"]["section"], "now")
+
+    def test_head_in_a_later_section_beats_a_mention_in_now(self):
+        rows, _ = self.rows("storefront")
+        self.assertEqual(rows["storefront"]["section"], "next")
+        self.assertEqual(rows["storefront"]["state"], "queued")
+        self.assertEqual(rows["storefront"]["next"], "pick the tokens")
+
+    def test_only_a_mention(self):
+        text = "## Now\n\n- saved carts: api #41 and the storefront page are up. Next: e2e on staging.\n"
+        rows, _ = self.rows("storefront", progress=text)
+        self.assertEqual(rows["storefront"]["state"], "saved carts: api #41 and the storefront page are up.")
+        self.assertEqual(rows["storefront"]["next"], "e2e on staging")
+
+    def test_next_section_without_marker(self):
+        rows, _ = self.rows("notifier")
+        self.assertEqual(rows["notifier"]["state"], "queued")
+        self.assertEqual(rows["notifier"]["next"], "retry policy for failed emails")
+
+    def test_next_step_comes_from_the_next_section(self):
+        text = "## Now\n\n- api — rewriting auth\n\n## Next\n\n- api — rate limits\n"
+        rows, _ = self.rows("api", progress=text)
+        self.assertEqual(rows["api"]["state"], "rewriting auth")
+        self.assertEqual(rows["api"]["next"], "rate limits")
+
+    def test_blocked_and_paused(self):
+        rows, _ = self.rows("search-indexer", "invoices")
+        self.assertEqual(rows["search-indexer"]["state"],
+                         "blocked: waiting on the data team for the catalog export, since 2026-02-27")
+        self.assertEqual(rows["invoices"]["state"], "paused: paused on 2026-02-20 for saved carts")
+
+    def test_only_a_next_step(self):
+        rows, _ = self.rows("api", progress="## Now\n\n- api — next: ship it\n")
+        self.assertEqual(rows["api"]["state"], "in progress")
+        self.assertEqual(rows["api"]["next"], "ship it")
+
+    def test_done_nested_bullets_and_placeholders_do_not_count(self):
+        text = self.PROGRESS + "\n## Now\n\n- <feature or task> — <state> — next: <warehouse>\n"
+        rows, _ = self.rows("warehouse", progress=text)
+        self.assertEqual(rows["warehouse"]["state"], "")
+        rows, _ = self.rows("notifier", progress="## Now\n\n- x\n  - notifier nested\n")
+        self.assertEqual(rows["notifier"]["section"], "")
+
+    def test_alias_is_a_whole_name(self):
+        text = "## Now\n\n- orders-api is up; see `docs/api.md` and api-docs\n"
+        rows, _ = self.rows("api", "orders", progress=text)
+        self.assertEqual(rows["api"]["section"], "")
+        self.assertEqual(rows["orders"]["section"], "")
+
+    def test_nothing_about_the_repo(self):
+        rows, lang = self.rows("ghost")
+        self.assertEqual((rows["ghost"]["state"], rows["ghost"]["next"]), ("", ""))
+        table = hub.portfolio_table(list(rows.values()), lang)
+        self.assertIn("| ghost | `../ghost` | — | — |", table)
+
+    def test_spanish_headings_give_a_spanish_table(self):
+        text = ("## Ahora\n\n- **api** — en review — próximo paso: mergear\n\n"
+                "## Próximo\n\n- web — tema oscuro\n\n## Bloqueado\n\n- jobs — espera datos\n")
+        rows, lang = self.rows("api", "web", "jobs", progress=text)
+        self.assertEqual(lang, "es")
+        self.assertEqual((rows["api"]["state"], rows["api"]["next"]), ("en review", "mergear"))
+        self.assertEqual(rows["web"]["state"], "en cola")
+        self.assertEqual(rows["jobs"]["state"], "bloqueado: espera datos")
+        table = hub.portfolio_table(list(rows.values()), lang)
+        self.assertTrue(table.startswith("| Proyecto | Repo | Estado | Próximo paso |"))
+
+    def test_table_stays_on_one_line_per_repo(self):
+        rows = [{"project": "a|b", "repo": "acme/a", "state": "x | y " * 60, "next": "", "section": "now"}]
+        table = hub.portfolio_table(rows, "en").splitlines()
+        self.assertEqual(len(table), 3)
+        self.assertIn("a\\|b", table[2])
+        self.assertIn("…", table[2])
+        self.assertLess(len(table[2]), 260)
+
+    def test_repo_is_the_slug_when_there_is_a_checkout(self):
+        git_repo(os.path.join(self.hub, "..", os.path.basename(self.hub) + "-orders"), "git@github.com:acme/orders-api.git")
+        checkout = os.path.join(self.hub, "..", os.path.basename(self.hub) + "-orders")
+        self.addCleanup(shutil.rmtree, checkout)
+        self.write(aliases=())
+        with open(os.path.join(self.hub, "repos.md"), "a", encoding="utf-8") as f:
+            f.write(f"| orders-api | `{checkout}` | main | github |\n")
+        rows, _ = hub.portfolio(self.hub)
+        self.assertEqual(rows[0]["repo"], "acme/orders-api")
+
+    def test_update_only_touches_the_marked_block_and_is_idempotent(self):
+        path = os.path.join(self.hub, "README.md")
+        original = "# Hub\n\n<!-- hub:portfolio -->\nold table\n<!-- /hub:portfolio -->\n\nCaf\u00e9 \\1 notes.\n"
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(original)
+        hub.update_portfolio_block(path, "| a \\| b |")
+        with open(path, encoding="utf-8") as f:
+            once = f.read()
+        self.assertEqual(once, "# Hub\n\n<!-- hub:portfolio -->\n| a \\| b |\n<!-- /hub:portfolio -->\n\nCaf\u00e9 \\1 notes.\n")
+        hub.update_portfolio_block(path, "| a \\| b |")
+        with open(path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), once)
+
+    def test_update_refuses_without_markers_and_leaves_the_file_alone(self):
+        path = os.path.join(self.hub, "README.md")
+        for text in ("# Hub\n", "<!-- /hub:portfolio -->\n<!-- hub:portfolio -->\n"):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+            with self.assertRaises(SystemExit):
+                hub.update_portfolio_block(path, "x")
+            with open(path, encoding="utf-8") as f:
+                self.assertEqual(f.read(), text)
+        with self.assertRaises(SystemExit):
+            hub.update_portfolio_block(os.path.join(self.hub, "missing.md"), "x")
 
 
 if __name__ == "__main__":

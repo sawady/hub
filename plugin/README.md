@@ -6,7 +6,7 @@ git worktrees, and keeps `progress.md` as the source of truth. Works with GitHub
 GitLab (`glab`).
 
 - Commands: `/hub:init`, `/hub:add-repo`, `/hub:feature`, `/hub:e2e`, `/hub:status`,
-  `/hub:close`, `/hub:merge`, `/hub:decision`, `/hub:dora`.
+  `/hub:portfolio`, `/hub:close`, `/hub:merge`, `/hub:decision`, `/hub:dora`.
 - Hook: at SessionStart, inside a hub only, injects Now/Blocked from `progress.md`, the repos
   whose base branch has a red CI run, and your open PRs/MRs across the hub's repos. Outside a hub
   it prints nothing. `HUB_SKIP_CI=1` / `HUB_SKIP_PRS=1` skip the forge calls.

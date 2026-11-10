@@ -20,6 +20,9 @@ Subcommands:
   ci-state <path> (--branch B | --sha S) [--forge F]
                        print "<state>\t<url>" for one checkout: success, failure, pending,
                        cancelled, manual, none (no run) or unknown (could not ask the forge)
+  portfolio [--json] [--update FILE]
+                       one line per repo (project, repo, state, next step) from repos.md and
+                       progress.md; --update rewrites the marked block of FILE, usually README.md
   init <dir> [--name N] [--owner O] [--lang en|es] [--force]
                        create a new hub from the template
   add-repo <alias> <path> [--base B] [--flow pr|direct] [--forge F] [--about TEXT]
@@ -433,14 +436,19 @@ def _ci_lines(ci):
 
 # ---------------------------------------------------------------- progress.md
 
+def _heading_title(line):
+    """The normalized title of a `## <heading>` line ("Now (2026-03-02)" -> "now"), or None."""
+    m = re.match(r"^##\s+(.+?)\s*$", line)
+    return re.sub(r"\s*[(—-].*$", "", m.group(1)).strip().lower() if m else None
+
+
 def extract_sections(text, keys, max_lines=MAX_SECTION_LINES):
     """The `## <heading>` sections of progress.md for the given keys, in file order."""
     wanted = {h.lower() for k in keys for h in SECTIONS[k]}
     out, cur, count, cut = [], False, 0, False
     for line in text.splitlines():
-        m = re.match(r"^##\s+(.+?)\s*$", line)
-        if m and not line.startswith("###"):
-            title = re.sub(r"\s*[(—-].*$", "", m.group(1)).strip().lower()
+        title = _heading_title(line)
+        if title is not None:
             cur, count, cut = title in wanted, 0, False
         if not cur:
             continue
@@ -477,6 +485,149 @@ def context(hub, with_prs=True, with_ci=True):
     if len(out) > MAX_CONTEXT_CHARS:
         out = out[:MAX_CONTEXT_CHARS].rsplit("\n", 1)[0] + "\n… (truncated; read progress.md)"
     return out + "\n"
+
+
+# ---------------------------------------------------------------- portfolio
+
+PORTFOLIO_SECTIONS = ["now", "blocked", "next", "paused"]  # the order a repo's state is looked up in
+PORTFOLIO_START = "<!-- hub:portfolio -->"
+PORTFOLIO_END = "<!-- /hub:portfolio -->"
+PORTFOLIO_CELL = 140  # characters of state or next step in the table; --json keeps the full text
+PORTFOLIO_LABELS = {
+    "en": {"head": ["Project", "Repo", "State", "Next step"], "now": "in progress", "queued": "queued", "blocked": "blocked", "paused": "paused"},
+    "es": {"head": ["Proyecto", "Repo", "Estado", "Próximo paso"], "now": "en curso", "queued": "en cola", "blocked": "bloqueado", "paused": "pausado"},
+}
+_NEXT_MARK = re.compile(r"(?:^|(?<=[\s—–;.,(]))(?:next(?: step)?|próximo(?: paso)?|proximo(?: paso)?|siguiente(?: paso)?)\s*:\s*", re.I)
+
+
+def progress_bullets(text):
+    """The top-level bullets of Now/Blocked/Next/Paused as (section key, text); wrapped lines are
+    joined, nested bullets and template placeholders are left out."""
+    key_of = {h.lower(): k for k in PORTFOLIO_SECTIONS for h in SECTIONS[k]}
+    out, key, cur = [], None, None
+
+    def flush():
+        nonlocal cur
+        if cur is not None and not cur.startswith("<"):
+            out.append((key, cur))
+        cur = None
+
+    for line in text.splitlines():
+        title = _heading_title(line)
+        if title is not None:
+            flush()
+            key = key_of.get(title)
+        elif key is None:
+            continue
+        elif re.match(r"^[-*]\s+", line):
+            flush()
+            cur = re.sub(r"^[-*]\s+", "", line).strip()
+        elif cur is None or not line.strip() or line.startswith("#") or re.match(r"^\s+[-*]\s+", line):
+            flush()
+        elif line[0].isspace():
+            cur += " " + line.strip()
+        else:
+            flush()
+    flush()
+    return out
+
+
+def _plain(text):
+    return text.replace("**", "").strip()
+
+
+def _alias_re(alias):
+    # the alias as a whole name: "api" is not in "orders-api" nor in "api-docs"
+    return re.compile(r"(?<![\w./-])" + re.escape(alias) + r"(?![\w-]|\.\w|/\w)", re.I)
+
+
+def _split_next(text):
+    """(what is going on, next step) of a bullet written like `<state> — next: <step>`."""
+    m = _NEXT_MARK.search(text)
+    if not m:
+        return text, ""
+    step = re.split(r"(?<=[.;])\s+(?=[A-ZÁÉÍÓÚÑ])", text[m.end():])[0]
+    step = re.sub(r"\s*\(`features/[^`]*`\)", "", step)
+    return text[:m.start()], step.strip().rstrip(".;").strip()
+
+
+def _strip_head(text, alias):
+    """Drop a leading `alias —` from a bullet, and the separators around the rest."""
+    text = re.sub(r"^`?" + re.escape(alias) + r"`?\s*(?:[—–:]|-\s)\s*", "", text, flags=re.I)
+    return text.strip().strip("—–;,").strip()
+
+
+def portfolio_row(repo, bullets, labels):
+    """One repo's line. A bullet that starts with the alias beats one that only mentions it, and
+    within each of those Now beats Blocked, Next and Paused."""
+    pat = _alias_re(repo["alias"])
+    found = []
+    for key, text in bullets:
+        plain = _plain(text)
+        unticked = plain.replace("`", "")
+        hit = pat.search(unticked)
+        if hit:
+            found.append((hit.start() != 0, PORTFOLIO_SECTIONS.index(key), len(found), key, plain))
+    row = {"project": repo["alias"], "repo": repo.get("slug") or repo.get("path", ""),
+           "state": "", "next": "", "section": ""}
+    if not found:
+        return row
+    found.sort()
+    _, _, _, key, plain = found[0]
+    what, step = _split_next(plain)
+    what = _strip_head(what, repo["alias"])
+    row["section"] = key
+    if key == "next":
+        row["state"], row["next"] = labels["queued"], step or what
+        return row
+    row["state"], row["next"] = what or labels["now"], step
+    if key in ("blocked", "paused"):
+        row["state"] = f"{labels[key]}: {what}" if what else labels[key]
+    if not row["next"]:
+        later = next((f for f in found if f[3] == "next"), None)
+        if later:
+            step_what, step_next = _split_next(later[4])
+            row["next"] = step_next or _strip_head(step_what, repo["alias"])
+    return row
+
+
+def portfolio(hub):
+    """(rows, language of progress.md) for every repo in repos.md, in its order. No forge calls."""
+    with open(os.path.join(hub, "progress.md"), encoding="utf-8") as f:
+        text = f.read()
+    lang = "es" if re.search(r"^##\s+(Ahora|Próximo|Proximo|Bloqueado|Pausado|Hecho)\b", text, re.M) else "en"
+    bullets = progress_bullets(text)
+    return [portfolio_row(resolve(r), bullets, PORTFOLIO_LABELS[lang]) for r in load_repos(hub)], lang
+
+
+def _short(text, limit=PORTFOLIO_CELL):
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0].rstrip(" ,;:—–") + "…"
+
+
+def portfolio_table(rows, lang):
+    head = PORTFOLIO_LABELS[lang]["head"]
+    lines = [_row(head), _row(["---"] * len(head))]
+    for r in rows:
+        lines.append(_row([_cell(r["project"]), f"`{_cell(r['repo'])}`" if r["repo"] else "—",
+                           _cell(_short(r["state"])) or "—", _cell(_short(r["next"])) or "—"]))
+    return "\n".join(lines)
+
+
+def update_portfolio_block(path, table):
+    """Replace what is between the portfolio markers of a file. Nothing else in it is touched."""
+    if not os.path.isfile(path):
+        raise SystemExit(f"{path}: no such file")
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    a = text.find(PORTFOLIO_START)
+    b = text.find(PORTFOLIO_END, a + 1) if a >= 0 else -1
+    if a < 0 or b < 0:
+        raise SystemExit(f"{path}: add the lines {PORTFOLIO_START} and {PORTFOLIO_END} where the table goes")
+    new = text[:a] + PORTFOLIO_START + "\n" + table + "\n" + text[b:]
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(new)
 
 
 # ---------------------------------------------------------------- init / add-repo / settings
@@ -713,6 +864,9 @@ def main(argv=None):
     c = sub.add_parser("ci")
     c.add_argument("--json", action="store_true")
     c.add_argument("--red", action="store_true", help="only repos whose latest run failed")
+    c = sub.add_parser("portfolio")
+    c.add_argument("--json", action="store_true")
+    c.add_argument("--update", metavar="FILE", help="rewrite the block between the portfolio markers of FILE")
     c = sub.add_parser("ci-state")
     c.add_argument("path")
     g = c.add_mutually_exclusive_group(required=True)
@@ -793,6 +947,16 @@ def main(argv=None):
         else:
             for r, c in res:
                 print("\t".join([r["alias"], r["base"], c["state"], c["workflow"], c["url"]]))
+        return 0
+    if a.cmd == "portfolio":
+        rows, lang = portfolio(hub)
+        if a.json:
+            print(json.dumps(rows, indent=1, ensure_ascii=False))
+            return 0
+        table = portfolio_table(rows, lang)
+        if a.update:
+            update_portfolio_block(os.path.join(hub, a.update), table)
+        print(table)
         return 0
     if a.cmd == "add-repo":
         print(add_repo(hub, a.alias, a.path, a.base, a.forge, a.about, a.checks, a.flow, a.deploys))
