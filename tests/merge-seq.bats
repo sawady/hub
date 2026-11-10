@@ -77,10 +77,89 @@ gh_pr() {  # gh_pr <n> <isDraft> <mergeStateStatus> [state]
 @test "github: no checks at all merges after the grace period" {
   git -C "$REPO" remote add origin git@github.com:acme/app.git
   gh_pr 9 false CLEAN
-  echo '[]' > "$FAKE_DIR/checks-9"
+  echo NONE > "$FAKE_DIR/checks-9"
   run "$ROOT/plugin/scripts/merge-seq.sh" -C "$REPO" 9
   [ "$status" -eq 0 ]
   [[ "$output" == *"no checks reported"* ]]
+}
+
+@test "github: a gh error while reading checks never counts as no checks" {
+  git -C "$REPO" remote add origin git@github.com:acme/app.git
+  gh_pr 9 false CLEAN
+  printf '%s\n' ERROR ERROR ERROR ERROR '[{"bucket":"fail"}]' > "$FAKE_DIR/checks-9"
+  run "$ROOT/plugin/scripts/merge-seq.sh" -C "$REPO" 9
+  [ "$status" -eq 3 ]
+  refute_grep 'pr merge' "$FAKE_DIR/calls"
+}
+
+@test "github: checks that stay unreadable time out with exit 3 and nothing is merged" {
+  git -C "$REPO" remote add origin git@github.com:acme/app.git
+  gh_pr 9 false CLEAN
+  echo ERROR > "$FAKE_DIR/checks-9"
+  HUB_MAX_WAIT_SECONDS=3 run "$ROOT/plugin/scripts/merge-seq.sh" -C "$REPO" 9
+  [ "$status" -eq 3 ]
+  refute_grep 'pr merge' "$FAKE_DIR/calls"
+}
+
+@test "github: UNKNOWN merge state is polled, so a conflict after the previous merge is exit 2" {
+  git -C "$REPO" remote add origin git@github.com:acme/app.git
+  gh_pr 5 false UNKNOWN
+  printf '%s\n' UNKNOWN UNKNOWN DIRTY > "$FAKE_DIR/mss-5"
+  echo '[{"bucket":"pass"}]' > "$FAKE_DIR/checks-5"
+  run "$ROOT/plugin/scripts/merge-seq.sh" -C "$REPO" 5
+  [ "$status" -eq 2 ]
+  refute_grep 'pr merge' "$FAKE_DIR/calls"
+}
+
+@test "github: UNKNOWN that settles on BEHIND is rebased before merging" {
+  git -C "$REPO" remote add origin git@github.com:acme/app.git
+  gh_pr 5 false UNKNOWN
+  printf '%s\n' UNKNOWN BEHIND CLEAN > "$FAKE_DIR/mss-5"
+  echo '[{"bucket":"pass"}]' > "$FAKE_DIR/checks-5"
+  run "$ROOT/plugin/scripts/merge-seq.sh" -C "$REPO" 5
+  [ "$status" -eq 0 ]
+  grep -q '^gh pr update-branch 5 --rebase$' "$FAKE_DIR/calls"
+  grep -q '^gh pr merge 5 --squash$' "$FAKE_DIR/calls"
+}
+
+@test "github: base moving during the checks rebases and waits again" {
+  git -C "$REPO" remote add origin git@github.com:acme/app.git
+  gh_pr 5 false CLEAN
+  printf '%s\n' BEHIND CLEAN > "$FAKE_DIR/mss-5"
+  echo '[{"bucket":"pass"}]' > "$FAKE_DIR/checks-5"
+  run "$ROOT/plugin/scripts/merge-seq.sh" -C "$REPO" 5
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^gh pr update-branch 5' "$FAKE_DIR/calls")" -eq 1 ]
+  [ "$(grep -c '^gh pr checks 5' "$FAKE_DIR/calls")" -eq 2 ]
+}
+
+@test "github: a base that keeps moving stops with exit 2" {
+  git -C "$REPO" remote add origin git@github.com:acme/app.git
+  gh_pr 5 false CLEAN
+  echo BEHIND > "$FAKE_DIR/mss-5"
+  echo '[{"bucket":"pass"}]' > "$FAKE_DIR/checks-5"
+  HUB_MAX_REBASES=2 run "$ROOT/plugin/scripts/merge-seq.sh" -C "$REPO" 5
+  [ "$status" -eq 2 ]
+  [ "$(grep -c '^gh pr update-branch 5' "$FAKE_DIR/calls")" -eq 2 ]
+  refute_grep 'pr merge' "$FAKE_DIR/calls"
+}
+
+@test "github: a merge rejected for conflicts is exit 2" {
+  git -C "$REPO" remote add origin git@github.com:acme/app.git
+  gh_pr 5 false CLEAN
+  printf '%s\n' CLEAN DIRTY > "$FAKE_DIR/mss-5"
+  echo '[{"bucket":"pass"}]' > "$FAKE_DIR/checks-5"
+  touch "$FAKE_DIR/merge-conflict-5"
+  run "$ROOT/plugin/scripts/merge-seq.sh" -C "$REPO" 5
+  [ "$status" -eq 2 ]
+}
+
+@test "github: a draft with conflicts is left as a draft" {
+  git -C "$REPO" remote add origin git@github.com:acme/app.git
+  gh_pr 5 true DIRTY
+  run "$ROOT/plugin/scripts/merge-seq.sh" -C "$REPO" 5
+  [ "$status" -eq 2 ]
+  refute_grep 'pr ready' "$FAKE_DIR/calls"
 }
 
 @test "github: dry run touches nothing" {

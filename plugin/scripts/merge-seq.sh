@@ -8,7 +8,8 @@
 # Exit codes: 0 all merged · 1 usage/setup · 2 conflict or rebase failed · 3 pipeline failed or
 # timed out · 4 merge failed or PR/MR closed.
 # Env: HUB_POLL_SECONDS (default 20), HUB_MAX_WAIT_SECONDS (default 3600),
-#      HUB_SETTLE_SECONDS (wait after a rebase, default 10), HUB_NO_CHECKS_GRACE (default 60).
+#      HUB_SETTLE_SECONDS (wait after a rebase, default 10), HUB_NO_CHECKS_GRACE (default 60),
+#      HUB_MERGE_STATE_TRIES (default 15, 2 s apart), HUB_MAX_REBASES (default 3).
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,6 +17,8 @@ POLL="${HUB_POLL_SECONDS:-20}"
 MAX_WAIT="${HUB_MAX_WAIT_SECONDS:-3600}"
 SETTLE="${HUB_SETTLE_SECONDS:-10}"
 GRACE="${HUB_NO_CHECKS_GRACE:-60}"
+MSS_TRIES="${HUB_MERGE_STATE_TRIES:-15}"
+MAX_REBASES="${HUB_MAX_REBASES:-3}"
 
 repo="."; forge=""; method="squash"; dry=0; nums=()
 usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1; }
@@ -41,33 +44,73 @@ die() { log "!! $2"; exit "$1"; }
 pause() { [ "$POLL" = "0" ] || sleep "$POLL"; }
 
 # ------------------------------------------------------------------ GitHub (gh)
+# mergeStateStatus is UNKNOWN for a moment after any change to the PR or its base: right after the
+# previous PR of the sequence merged, which is exactly when it matters.
+gh_mss() {
+  local n="$1" s tries=0
+  while :; do
+    s="$(gh pr view "$n" --json mergeStateStatus --jq .mergeStateStatus)" || return 1
+    if [ "$s" != "UNKNOWN" ] || [ "$tries" -ge "$MSS_TRIES" ]; then printf '%s\n' "$s"; return 0; fi
+    tries=$((tries + 1))
+    [ "$POLL" = "0" ] || sleep 2
+  done
+}
+
+# Wait for the checks of the PR's current head. Exits on red or timeout; returns when it can merge.
+gh_wait_checks() {
+  local n="$1" waited=0 out checks total fail pending warned=0
+  while :; do
+    out="$(gh pr checks "$n" --json bucket 2>&1)" || true
+    if jq -e 'type == "array"' >/dev/null 2>&1 <<<"$out"; then
+      checks="$out"
+    elif [[ "$out" == *"no checks reported"* ]]; then
+      checks="[]"
+    else
+      # gh failed (network, rate limit, 5xx): that says nothing about the checks, so it must not
+      # count as "no checks" and run out the grace period.
+      [ "$warned" = 1 ] || { log "   cannot read checks, retrying: ${out:0:200}"; warned=1; }
+      checks=""
+    fi
+    if [ -n "$checks" ]; then
+      total="$(jq length <<<"$checks")"
+      fail="$(jq '[.[] | select(.bucket=="fail" or .bucket=="cancel")] | length' <<<"$checks")"
+      pending="$(jq '[.[] | select(.bucket=="pending")] | length' <<<"$checks")"
+      [ "$fail" = "0" ] || die 3 "#$n checks failed"
+      if [ "$total" = "0" ] && [ "$waited" -ge "$GRACE" ]; then log "   no checks reported; merging"; return 0; fi
+      if [ "$total" != "0" ] && [ "$pending" = "0" ]; then log "   checks ok"; return 0; fi
+    fi
+    [ "$waited" -lt "$MAX_WAIT" ] || die 3 "#$n checks unknown or pending after ${MAX_WAIT}s"
+    pause; waited=$((waited + POLL)); [ "$POLL" = "0" ] && waited=$((waited + 1))
+  done
+}
+
 gh_one() {
-  local n="$1" info state draft mss waited=0 checks fail pending total out
+  local n="$1" info state draft mss rebases=0 out
   info="$(gh pr view "$n" --json state,isDraft,mergeStateStatus,headRefOid)" || die 4 "#$n: cannot read PR"
   state="$(jq -r .state <<<"$info")"; draft="$(jq -r .isDraft <<<"$info")"; mss="$(jq -r .mergeStateStatus <<<"$info")"
   [ "$state" = "MERGED" ] && { log "   #$n already merged"; return 0; }
   [ "$state" = "OPEN" ] || die 4 "#$n is $state"
   if [ "$dry" = 1 ]; then log "   #$n draft=$draft mergeState=$mss (dry run)"; return 0; fi
-  if [ "$draft" = "true" ]; then gh pr ready "$n" >/dev/null || die 4 "#$n: cannot mark ready"; log "   ready"; fi
+  if [ "$mss" = "UNKNOWN" ]; then mss="$(gh_mss "$n")" || die 4 "#$n: cannot read PR"; fi
   if [ "$mss" = "DIRTY" ]; then die 2 "#$n has conflicts with its base"; fi
-  if [ "$mss" = "BEHIND" ]; then
-    out="$(gh pr update-branch "$n" --rebase 2>&1)" || die 2 "#$n rebase failed: $out"
-    log "   rebased"
-    [ "$SETTLE" = "0" ] || sleep "$SETTLE"
-  fi
+  if [ "$draft" = "true" ]; then gh pr ready "$n" >/dev/null || die 4 "#$n: cannot mark ready"; log "   ready"; fi
   while :; do
-    checks="$(gh pr checks "$n" --json bucket 2>/dev/null)" || true
-    [ -n "$checks" ] || checks="[]"
-    total="$(jq length <<<"$checks")"
-    fail="$(jq '[.[] | select(.bucket=="fail" or .bucket=="cancel")] | length' <<<"$checks")"
-    pending="$(jq '[.[] | select(.bucket=="pending")] | length' <<<"$checks")"
-    [ "$fail" = "0" ] || die 3 "#$n checks failed"
-    if [ "$total" = "0" ] && [ "$waited" -ge "$GRACE" ]; then log "   no checks reported; merging"; break; fi
-    if [ "$total" != "0" ] && [ "$pending" = "0" ]; then log "   checks ok"; break; fi
-    [ "$waited" -lt "$MAX_WAIT" ] || die 3 "#$n checks still pending after ${MAX_WAIT}s"
-    pause; waited=$((waited + POLL)); [ "$POLL" = "0" ] && waited=$((waited + 1))
+    if [ "$mss" = "BEHIND" ]; then
+      [ "$rebases" -lt "$MAX_REBASES" ] || die 2 "#$n still behind its base after $rebases rebases"
+      out="$(gh pr update-branch "$n" --rebase 2>&1)" || die 2 "#$n rebase failed: $out"
+      rebases=$((rebases + 1)); log "   rebased"
+      [ "$SETTLE" = "0" ] || sleep "$SETTLE"
+    fi
+    gh_wait_checks "$n"
+    # the base may have moved while the checks ran
+    mss="$(gh_mss "$n")" || die 4 "#$n: cannot read PR"
+    if [ "$mss" = "DIRTY" ]; then die 2 "#$n has conflicts with its base"; fi
+    [ "$mss" = "BEHIND" ] || break
   done
-  out="$(gh pr merge "$n" "--$method" 2>&1)" || die 4 "#$n merge: $out"
+  if ! out="$(gh pr merge "$n" "--$method" 2>&1)"; then
+    [ "$(gh_mss "$n" 2>/dev/null)" != "DIRTY" ] || die 2 "#$n has conflicts with its base"
+    die 4 "#$n merge: $out"
+  fi
   state="$(gh pr view "$n" --json state --jq .state)"
   [ "$state" = "MERGED" ] || die 4 "#$n is $state after merge (merge queue or branch protection?): $out"
   log "   merged $(gh pr view "$n" --json mergeCommit --jq '.mergeCommit.oid // ""' | cut -c1-8)"

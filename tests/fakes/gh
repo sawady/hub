@@ -8,12 +8,27 @@ n="$3"
 case "$1 $2" in
   "pr view")
     if [[ "$*" == *"--json state --jq"* ]]; then [ -f "$FAKE_DIR/merged-$n" ] && echo MERGED || echo OPEN
+    elif [[ "$*" == *"--json mergeStateStatus --jq"* ]]; then
+      if [ -f "$FAKE_DIR/mss-$n" ]; then pop "mss-$n"
+      elif [ -f "$FAKE_DIR/rebased-$n" ]; then echo CLEAN
+      else jq -r .mergeStateStatus "$FAKE_DIR/view-$n.json"; fi
     elif [[ "$*" == *"mergeCommit"* ]]; then echo "abcdef0123456789"
     else cat "$FAKE_DIR/view-$n.json"; fi ;;
   "pr ready") : ;;
-  "pr update-branch") exit "$(cat "$FAKE_DIR/update-exit" 2>/dev/null || echo 0)" ;;
-  "pr checks") pop "checks-$n" ;;
-  "pr merge") touch "$FAKE_DIR/merged-$n"; echo "Merged pull request #$n" ;;
+  "pr update-branch")
+    rc="$(cat "$FAKE_DIR/update-exit" 2>/dev/null || echo 0)"
+    [ "$rc" != 0 ] || touch "$FAKE_DIR/rebased-$n"
+    exit "$rc" ;;
+  "pr checks")  # one per line: a JSON array, NONE (real gh: no checks yet) or ERROR (API failure)
+    line="$(pop "checks-$n")"
+    case "$line" in
+      NONE) echo "no checks reported on the 'feature' branch" >&2; exit 1 ;;
+      ERROR) echo "HTTP 502: Bad Gateway (https://api.github.com/graphql)" >&2; exit 1 ;;
+      *) echo "$line" ;;
+    esac ;;
+  "pr merge")
+    if [ -f "$FAKE_DIR/merge-conflict-$n" ]; then echo "X Pull request is not mergeable" >&2; exit 1; fi
+    touch "$FAKE_DIR/merged-$n"; echo "Merged pull request #$n" ;;
   "auth status") exit 0 ;;
   "pr list") cat "$FAKE_DIR/pr-list.json" 2>/dev/null || echo "[]" ;;
   "run list")  # runs-branch-<branch>.json, or the sequence file runs-commit-<sha> (one JSON array per line)

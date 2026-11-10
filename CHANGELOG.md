@@ -21,6 +21,10 @@ project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - Radar: a malformed date no longer breaks an item's sheet, nor stops `radar-md.py` from
   regenerating the mirror.
 - The `radar` skill now says to edit `<title>` too, the name the artifact gets in the gallery.
+- `merge-seq.sh` on GitHub, found against real PRs: a merge state of `UNKNOWN` (what GitHub reports
+  right after the previous PR of the sequence merged) is now waited out, so a conflict is exit 2
+  and a behind branch gets rebased. The base moving during the checks is handled too, a failure of
+  `gh` no longer counts as "no checks", and a conflicting draft stays a draft.
 
 ## [0.1.0] - 2026-11-02
 
