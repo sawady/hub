@@ -18,6 +18,9 @@ project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- The SessionStart hook no longer injects the template's placeholders as if they were the hub's
+  state (`- <feature or task> — ...`, `YYYY-MM-DD`, the guidance under "Resume here"). Right after
+  `/hub:init` it says that Now and Blocked are empty.
 - Radar: Contributors can file requests again. The page hid the button because it read
   `can("data.write")`, which answers for the root rule and not for `requests/{self}`.
 - Radar: a malformed date no longer breaks an item's sheet, nor stops `radar-md.py` from

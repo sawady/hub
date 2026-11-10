@@ -35,8 +35,16 @@ setup() {
   [[ "$output" == *$'storefront\t'*$'\tdevelop\tgitlab\tacme/web/storefront'* ]]
   echo '[{"number":41,"title":"Saved carts API","isDraft":true,"url":"u","headRefName":"feat/saved-carts"}]' > "$FAKE_DIR/pr-list.json"
   echo '[{"iid":17,"title":"Saved carts page","draft":false,"web_url":"u","source_branch":"feat/saved-carts"}]' > "$FAKE_DIR/mr-list.json"
+  HUB_SKIP_CI=1 HUB_SKIP_PRS=1 run "$ROOT/bin/hub" context
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"(Now and Blocked are empty)"* ]]   # the template's placeholders are not state
+  [[ "$output" != *"<feature or task>"* ]]
+  [[ "$output" != *"YYYY-MM-DD"* ]]
+  printf '## Now\n\n- saved-carts — API PR in review\n\n## Blocked\n\n- <item> — blocked on <who/what>, since YYYY-MM-DD\n' > progress.md
   run "$ROOT/bin/hub" context
   [ "$status" -eq 0 ]
+  [[ "$output" == *"- saved-carts — API PR in review"* ]]
+  [[ "$output" != *"<item>"* ]]
   [[ "$output" == *"## Now"* ]]
   [[ "$output" == *"## Blocked"* ]]
   [[ "$output" != *"## Done"* ]]

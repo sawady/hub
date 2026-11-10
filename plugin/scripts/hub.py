@@ -7,9 +7,10 @@ cross-repo feature) and a daily `journal/`.
 
 Subcommands:
   context [--no-prs] [--no-ci]
-                       print "Now" / "Blocked" from progress.md, the repos whose base branch
-                       has a red CI run, and your open PRs/MRs (used by the SessionStart hook;
-                       prints nothing outside a hub). HUB_SKIP_PRS=1 / HUB_SKIP_CI=1 skip the
+                       print "Now" / "Blocked" from progress.md (without the template's
+                       placeholders), the repos whose base branch has a red CI run, and
+                       your open PRs/MRs (used by the SessionStart hook; prints nothing
+                       outside a hub). HUB_SKIP_PRS=1 / HUB_SKIP_CI=1 skip the
                        forge calls.
   repos [--json]       list the repos in repos.md with their resolved path, base, forge, slug
                        and flow (pr | direct)
@@ -442,15 +443,52 @@ def _heading_title(line):
     return re.sub(r"\s*[(—-].*$", "", m.group(1)).strip().lower() if m else None
 
 
+_TEMPLATE_HINTS = None
+
+
+def _template_hints():
+    """The guidance lines of the template's progress.md (neither headings nor bullets), such as
+    the sentence under "Resume here", which a fresh hub still has."""
+    global _TEMPLATE_HINTS
+    if _TEMPLATE_HINTS is None:
+        hints = set()
+        try:
+            with open(os.path.join(TEMPLATE, "progress.md"), encoding="utf-8") as f:
+                text = f.read()
+        except OSError:
+            text = ""
+        for t in (text, translate(text, SPANISH)):
+            for line in t.splitlines():
+                s = line.strip()
+                if s and not s.startswith("#") and not re.match(r"^[-*]\s", s):
+                    hints.add(s)
+        _TEMPLATE_HINTS = hints
+    return _TEMPLATE_HINTS
+
+
+def translate(text, table):
+    for en, es in table.items():
+        text = text.replace(en, es)
+    return text
+
+
+def is_placeholder(line):
+    """A line of progress.md that is still the template's: a top-level bullet that starts with
+    `<...>` (`- <feature or task> — ...`), anything with a `YYYY-MM-DD` date, or the template's
+    guidance."""
+    return bool(re.match(r"^[-*]\s+<", line)) or "YYYY-MM-DD" in line or line.strip() in _template_hints()
+
+
 def extract_sections(text, keys, max_lines=MAX_SECTION_LINES):
-    """The `## <heading>` sections of progress.md for the given keys, in file order."""
+    """The `## <heading>` sections of progress.md for the given keys, in file order. Lines left
+    from the template (see is_placeholder) are not part of them."""
     wanted = {h.lower() for k in keys for h in SECTIONS[k]}
     out, cur, count, cut = [], False, 0, False
     for line in text.splitlines():
         title = _heading_title(line)
         if title is not None:
             cur, count, cut = title in wanted, 0, False
-        if not cur:
+        if not cur or is_placeholder(line) or (not line.strip() and out and not out[-1].strip()):
             continue
         if count >= max_lines:
             if not cut:
@@ -467,7 +505,12 @@ def extract_sections(text, keys, max_lines=MAX_SECTION_LINES):
 def context(hub, with_prs=True, with_ci=True):
     with open(os.path.join(hub, "progress.md"), encoding="utf-8") as f:
         text = f.read()
-    parts = ["# Hub context (from progress.md)", "", extract_sections(text, ["now", "blocked"]) or "(no Now/Blocked sections)"]
+    state = extract_sections(text, ["now", "blocked"])
+    if not state:
+        state = "(no Now/Blocked sections)"
+    elif all(not x.strip() or x.startswith("#") for x in state.splitlines()):
+        state = "(Now and Blocked are empty)"
+    parts = ["# Hub context (from progress.md)", "", state]
     fns = ([base_ci] if with_ci else []) + ([open_prs] if with_prs else [])
     if fns:
         repos, res = _on_forges([resolve(r) for r in load_repos(hub)], fns)
@@ -656,8 +699,7 @@ def init(target, name, owner, lang="en", force=False):
             with open(src, encoding="utf-8") as f:
                 text = render(f.read(), values)
             if lang == "es":
-                for en, es in TRANSLATIONS_ES.get(os.path.normpath(os.path.join(rel, fn)), {}).items():
-                    text = text.replace(en, es)
+                text = translate(text, TRANSLATIONS_ES.get(os.path.normpath(os.path.join(rel, fn)), {}))
             if os.path.exists(dest) and not force:
                 continue
             with open(dest, "w", encoding="utf-8") as f:

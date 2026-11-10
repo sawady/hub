@@ -153,6 +153,28 @@ class Progress(unittest.TestCase):
         self.assertIn("- x", out)
         self.assertNotIn("- y", out)
 
+    def test_template_placeholders_are_left_out(self):
+        with open(os.path.join(hub.TEMPLATE, "progress.md"), encoding="utf-8") as f:
+            template = f.read()
+        for text in (template, hub.translate(template, hub.SPANISH)):
+            out = hub.extract_sections(text, ["now", "blocked"])
+            self.assertNotIn("<", out)
+            self.assertNotIn("YYYY-MM-DD", out)
+            self.assertNotIn("What is in flight", out)
+            self.assertNotIn("\n\n\n", out)
+        text = template.replace("- <item> — blocked on <who/what>, since YYYY-MM-DD", "- search — blocked on infra, since 2026-03-01")
+        out = hub.extract_sections(text, ["now", "blocked"])
+        self.assertIn("- search — blocked on infra, since 2026-03-01", out)
+        self.assertNotIn("<feature or task>", out)
+
+    def test_real_lines_are_kept(self):
+        text = "## Now\n\n### Resume here (2026-03-02)\n\n- api <-> web contract — next: review\n  - <b>nested</b> stays\n"
+        out = hub.extract_sections(text, ["now"])
+        self.assertIn("### Resume here (2026-03-02)", out)
+        self.assertIn("- api <-> web contract — next: review", out)
+        self.assertIn("  - <b>nested</b> stays", out)  # only top-level `- <` bullets are placeholders
+        self.assertEqual(hub.extract_sections(PROGRESS_EN, ["now", "blocked"]).count("\n\n\n"), 0)
+
     def test_truncation(self):
         text = "## Now\n" + "".join(f"- line {i}\n" for i in range(200))
         out = hub.extract_sections(text, ["now"], max_lines=10)
@@ -421,6 +443,12 @@ class HubFiles(unittest.TestCase):
         out = hub.context(self.hub, with_prs=False)
         self.assertLessEqual(len(out), hub.MAX_CONTEXT_CHARS + 100)
         self.assertIn("truncated", out)
+
+    def test_context_of_a_fresh_hub_has_no_placeholders(self):
+        out = hub.context(self.hub, with_prs=False, with_ci=False)
+        self.assertIn("(Now and Blocked are empty)", out)
+        self.assertNotIn("<", out)
+        self.assertNotIn("YYYY", out)
 
     def test_cli_context_silent_outside_hub(self):
         buf = io.StringIO()
