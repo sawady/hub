@@ -12,6 +12,7 @@ project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 - `/hub:portfolio` and `hub portfolio`: one line per repo (project, repo, state, next step) from
   `repos.md` and `progress.md`, without calling any forge. `--json` for the full text and
   `--update FILE` to rewrite a marked block of a file such as `README.md`.
+- A plugin icon (`plugin/.claude-plugin/icon.png`).
 
 ## [0.1.0] - 2026-11-02
 
