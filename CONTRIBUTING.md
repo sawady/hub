@@ -17,8 +17,8 @@ validate the plugin.
 
 ```sh
 python3 -m unittest discover -s tests     # hub.py, dora.py, radar-md.py
-bats tests/                               # merge-seq.sh and land-direct.sh against fake gh/glab, check-leaks.sh, the CLI
-shellcheck bin/hub scripts/*.sh plugin/scripts/*.sh tests/fakes/*
+bats tests/                               # merge-seq.sh and land-direct.sh against fake gh/glab, check-leaks.sh and its pre-push hook, the CLI
+shellcheck bin/hub scripts/*.sh scripts/git-hooks/* plugin/scripts/*.sh tests/fakes/*
 claude plugin validate plugin && claude plugin validate .
 ```
 
@@ -26,6 +26,22 @@ To try the plugin from your checkout: `claude --plugin-dir ./plugin`.
 
 CI runs the tests, shellcheck, a JSON parse of the manifests, gitleaks and the term scan on every
 push and pull request.
+
+## Scanning before every push
+
+`scripts/git-hooks/pre-push` is an optional git hook that runs `scripts/check-leaks.sh --history`
+and stops the push unless the scan exits 0. Install it once per clone, from the repository root:
+
+```sh
+git config core.hooksPath scripts/git-hooks
+```
+
+It needs a term list (`~/.config/hub/leak-terms.txt`, `HUB_LEAK_TERMS_FILE` or `HUB_LEAK_TERMS`):
+without one the scan exits 2 and the push is stopped too, because nothing was checked. It scans
+every ref of the clone (`git log --all`), so a hit on another local branch also stops the push.
+`core.hooksPath` replaces `.git/hooks`: if you already use other hooks there, link this one
+instead (`ln -s ../../scripts/git-hooks/pre-push .git/hooks/pre-push`). Undo it with
+`git config --unset core.hooksPath`.
 
 ## Style and rules
 

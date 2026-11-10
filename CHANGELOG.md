@@ -9,6 +9,9 @@ project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- An optional pre-push hook, `scripts/git-hooks/pre-push`, that runs
+  `scripts/check-leaks.sh --history` and stops the push unless it exits 0. Install it with
+  `git config core.hooksPath scripts/git-hooks` (see CONTRIBUTING.md).
 - `--hub DIR` on `hub.py` and `bin/hub`, to work on a hub from outside it. `/hub:init <dir>` uses it
   to add the repos and run `doctor`, because a session may not be allowed to `cd` there.
 - `/hub:portfolio` and `hub portfolio`: one line per repo (project, repo, state, next step) from

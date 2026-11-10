@@ -217,15 +217,16 @@ names stay in English. The hook and the commands understand both sets of heading
 
 ```sh
 python3 -m unittest discover -s tests     # hub.py, dora.py, radar-md.py
-bats tests/                               # merge-seq.sh and land-direct.sh against fake gh/glab, check-leaks.sh, the CLI
-shellcheck bin/hub scripts/*.sh plugin/scripts/*.sh tests/fakes/*
+bats tests/                               # merge-seq.sh and land-direct.sh against fake gh/glab, check-leaks.sh and its pre-push hook, the CLI
+shellcheck bin/hub scripts/*.sh scripts/git-hooks/* plugin/scripts/*.sh tests/fakes/*
 claude plugin validate plugin && claude plugin validate .
 ```
 
 `scripts/check-leaks.sh` scans the tree (and with `--history`, every commit) for terms that must
 never be published. The term list is never in the repo: it comes from `~/.config/hub/leak-terms.txt`
 locally or from the `HUB_LEAK_TERMS` secret in CI, and the report shows only `path:line: term #N`.
-CI also runs gitleaks.
+CI also runs gitleaks. An optional pre-push hook runs the scan before every push; see
+[CONTRIBUTING.md](CONTRIBUTING.md#scanning-before-every-push).
 
 ## Contributing
 

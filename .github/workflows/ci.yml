@@ -43,7 +43,7 @@ jobs:
           git config --global user.email ci@example.com && git config --global user.name ci
           git config --global init.defaultBranch main
       - name: shellcheck
-        run: shellcheck bin/hub scripts/*.sh plugin/scripts/*.sh tests/fakes/*
+        run: shellcheck bin/hub scripts/*.sh scripts/git-hooks/* plugin/scripts/*.sh tests/fakes/*
       - name: Python tests
         run: python3 -m unittest discover -s tests -v
       - name: bats

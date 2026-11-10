@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Optional pre-push hook: scan the working tree and the whole history for terms that must never
+# be published (scripts/check-leaks.sh --history) and stop the push unless the scan exits 0.
+# That includes exit 2, no term list: without one nothing was checked.
+#
+# Install it once per clone, from the repository root:
+#   git config core.hooksPath scripts/git-hooks
+set -uo pipefail
+cat > /dev/null  # the refs being pushed; the scan covers every ref anyway
+here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"  # also when linked from .git/hooks
+top="$(git rev-parse --show-toplevel)" || exit 1
+"$here/../check-leaks.sh" --history "$top"
+code=$?
+if [ "$code" -ne 0 ]; then
+  echo "pre-push: check-leaks.sh --history exited $code; push stopped" >&2
+  exit "$code"
+fi
