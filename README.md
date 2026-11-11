@@ -245,6 +245,11 @@ Issues are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Changes are listed i
 hub is free and MIT licensed. If it saves you time, you can support its development through
 [GitHub Sponsors](https://github.com/sponsors/sawady).
 
+## Privacy
+
+No telemetry and no service run by the author. hub talks to your forge only through your own
+`gh`/`glab` login. See [PRIVACY.md](PRIVACY.md).
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

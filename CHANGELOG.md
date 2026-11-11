@@ -9,6 +9,10 @@ project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- Listing details for Anthropic's plugin directory: `displayName`, the icon path, and
+  documentation, support and privacy policy links in `plugin.json` (Claude Code ignores the
+  last four), plus `PRIVACY.md`. The plugin README now says where the plugin works, gives three
+  examples and says what it runs and sends.
 - An optional pre-push hook, `scripts/git-hooks/pre-push`, that runs
   `scripts/check-leaks.sh --history` and stops the push unless it exits 0. Install it with
   `git config core.hooksPath scripts/git-hooks` (see CONTRIBUTING.md).

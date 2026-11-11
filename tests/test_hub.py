@@ -3,6 +3,7 @@ import io
 import json
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -505,6 +506,22 @@ class PluginLayout(unittest.TestCase):
             hooks = json.load(f)
         cmd = hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"]
         self.assertIn("${CLAUDE_PLUGIN_ROOT}/scripts/hub.py", cmd)
+
+    def test_directory_listing_fields(self):
+        # Anthropic's directory wants a square PNG or JPEG, 512 to 2048 px a side, under 2 MB,
+        # and https links. Claude Code itself ignores these fields.
+        with open(os.path.join(ROOT, "plugin", ".claude-plugin", "plugin.json")) as f:
+            plugin = json.load(f)
+        with open(os.path.join(ROOT, "plugin", plugin["icon"]), "rb") as f:
+            data = f.read()
+        self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
+        width, height = struct.unpack(">II", data[16:24])
+        self.assertEqual(width, height)
+        self.assertTrue(512 <= width <= 2048, width)
+        self.assertLess(len(data), 2 * 1024 * 1024)
+        for field in ("homepage", "documentationUrl", "supportUrl", "privacyPolicyUrl"):
+            self.assertTrue(plugin[field].startswith("https://"), field)
+        self.assertTrue(os.path.isfile(os.path.join(ROOT, "PRIVACY.md")))
 
     def test_commands_and_agents_have_frontmatter(self):
         for sub in ("commands", "agents"):

@@ -21,3 +21,22 @@ Install:
 
 Scripts in `scripts/` use only the Python standard library and bash (`jq` for merges). Start with
 `/hub:init`. Full documentation and the method: https://github.com/sawady/hub
+
+Built for Claude Code: the hook, the agent and the scripts need a local shell, git, `gh` or
+`glab`, and your repos. In claude.ai chat only the commands and the skill load, as instructions.
+
+Examples:
+
+- `/hub:init ~/work/acme-hub`, then `/hub:add-repo orders-api ../orders-api`: create a hub for
+  the Acme Books web team and register the repos it drives.
+- `/hub:feature saved-carts Keep a reader's cart between visits`: write the contract-first plan
+  for a feature that touches several repos, in `features/saved-carts.md`.
+- `/hub:e2e saved-carts`: implement that plan with one agent per repo in parallel worktrees, then
+  check every repo against the contract.
+
+What it runs and sends: the scripts call `git`, and `gh` or `glab` with your own login, to read
+CI runs and your open PRs/MRs and, when you ask, to push and merge. DORA metrics come from local
+git history. The optional Radar is a claude.ai artifact in your account. There is no telemetry.
+Details: https://github.com/sawady/hub/blob/main/PRIVACY.md
+
+MIT licensed.
