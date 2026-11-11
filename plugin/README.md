@@ -39,4 +39,10 @@ CI runs and your open PRs/MRs and, when you ask, to push and merge. DORA metrics
 git history. The optional Radar is a claude.ai artifact in your account. There is no telemetry.
 Details: https://github.com/sawady/hub/blob/main/PRIVACY.md
 
+Permissions it writes: `/hub:init` creates the new hub's `.claude/settings.json`, which enables
+this plugin from the `sawady/hub` marketplace, allows read-only `git`, `gh` and `glab` commands,
+asks before merging or marking a PR/MR ready, and denies force pushes and deleting repos.
+`/hub:add-repo` adds each repo's directory to `additionalDirectories` there. It only touches the
+hub's own settings, never your user settings.
+
 MIT licensed.
